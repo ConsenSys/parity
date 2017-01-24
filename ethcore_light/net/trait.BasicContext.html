@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `BasicContext` trait in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, BasicContext">
+
+    <title>ethcore_light::net::BasicContext - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a></p><script>window.sidebarCurrent = {name: 'BasicContext', ty: 'trait', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content trait">
+<h1 class='fqn'><span class='in-band'>Trait <a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a>::<wbr><a class='trait' href=''>BasicContext</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-362' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/context.rs.html#81-101' title='goto source code'>[src]</a></span></h1>
+<pre class='rust trait'>pub trait BasicContext {
+    fn <a href='#tymethod.persistent_peer_id' class='fnname'>persistent_peer_id</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='type' href='../../ethcore_network/node_table/type.NodeId.html' title='ethcore_network::node_table::NodeId'>NodeId</a>&gt;;
+    fn <a href='#tymethod.request_from' class='fnname'>request_from</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, request: <a class='enum' href='../../ethcore_light/request/enum.Request.html' title='ethcore_light::request::Request'>Request</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a>&gt;;
+    fn <a href='#tymethod.make_announcement' class='fnname'>make_announcement</a>(&amp;self, announcement: <a class='struct' href='../../ethcore_light/net/struct.Announcement.html' title='ethcore_light::net::Announcement'>Announcement</a>);
+    fn <a href='#tymethod.max_requests' class='fnname'>max_requests</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, kind: <a class='enum' href='../../ethcore_light/request/enum.Kind.html' title='ethcore_light::request::Kind'>Kind</a>) -&gt; <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>;
+    fn <a href='#tymethod.disconnect_peer' class='fnname'>disconnect_peer</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>);
+    fn <a href='#tymethod.disable_peer' class='fnname'>disable_peer</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>);
+}</pre><div class='docblock'><p>Basic context for the protocol.</p>
+</div>
+            <h2 id='required-methods'>Required Methods</h2>
+            <div class='methods'>
+        <h3 id='tymethod.persistent_peer_id' class='method stab '><span id='persistent_peer_id.v' class='invisible'><code>fn <a href='#tymethod.persistent_peer_id' class='fnname'>persistent_peer_id</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='type' href='../../ethcore_network/node_table/type.NodeId.html' title='ethcore_network::node_table::NodeId'>NodeId</a>&gt;</code></span></h3><div class='docblock'><p>Returns the relevant&#39;s peer persistent Id (aka NodeId).</p>
+</div><h3 id='tymethod.request_from' class='method stab '><span id='request_from.v' class='invisible'><code>fn <a href='#tymethod.request_from' class='fnname'>request_from</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, request: <a class='enum' href='../../ethcore_light/request/enum.Request.html' title='ethcore_light::request::Request'>Request</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a>&gt;</code></span></h3><div class='docblock'><p>Make a request from a peer.</p>
+</div><h3 id='tymethod.make_announcement' class='method stab '><span id='make_announcement.v' class='invisible'><code>fn <a href='#tymethod.make_announcement' class='fnname'>make_announcement</a>(&amp;self, announcement: <a class='struct' href='../../ethcore_light/net/struct.Announcement.html' title='ethcore_light::net::Announcement'>Announcement</a>)</code></span></h3><div class='docblock'><p>Make an announcement of new capabilities to the rest of the peers.</p>
+</div><h3 id='tymethod.max_requests' class='method stab '><span id='max_requests.v' class='invisible'><code>fn <a href='#tymethod.max_requests' class='fnname'>max_requests</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, kind: <a class='enum' href='../../ethcore_light/request/enum.Kind.html' title='ethcore_light::request::Kind'>Kind</a>) -&gt; <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a></code></span></h3><div class='docblock'><p>Find the maximum number of requests of a specific type which can be made from
+supplied peer.</p>
+</div><h3 id='tymethod.disconnect_peer' class='method stab '><span id='disconnect_peer.v' class='invisible'><code>fn <a href='#tymethod.disconnect_peer' class='fnname'>disconnect_peer</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>)</code></span></h3><div class='docblock'><p>Disconnect a peer.</p>
+</div><h3 id='tymethod.disable_peer' class='method stab '><span id='disable_peer.v' class='invisible'><code>fn <a href='#tymethod.disable_peer' class='fnname'>disable_peer</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>)</code></span></h3><div class='docblock'><p>Disable a peer.</p>
+</div></div>
+        <h2 id='implementors'>Implementors</h2>
+        <ul class='item-list' id='implementors-list'>
+    </ul><script type="text/javascript" async
+                         src="../../implementors/ethcore_light/net/trait.BasicContext.js">
+                 </script></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["Provider","Defines the operations that a provider for `LES` must fulfill."]]});

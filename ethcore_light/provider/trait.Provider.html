@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `Provider` trait in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, Provider">
+
+    <title>ethcore_light::provider::Provider - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>provider</a></p><script>window.sidebarCurrent = {name: 'Provider', ty: 'trait', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content trait">
+<h1 class='fqn'><span class='in-band'>Trait <a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>provider</a>::<wbr><a class='trait' href=''>Provider</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-1598' class='srclink' href='../../src/ethcore_light/ethcore/light/src/provider.rs.html#38-190' title='goto source code'>[src]</a></span></h1>
+<pre class='rust trait'>pub trait Provider: <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Send.html' title='core::marker::Send'>Send</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html' title='core::marker::Sync'>Sync</a> {
+    fn <a href='#tymethod.chain_info' class='fnname'>chain_info</a>(&amp;self) -&gt; <a class='struct' href='../../ethcore/types/blockchain_info/struct.BlockChainInfo.html' title='ethcore::types::blockchain_info::BlockChainInfo'>BlockChainInfo</a>;
+    fn <a href='#tymethod.reorg_depth' class='fnname'>reorg_depth</a>(&amp;self, a: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>, b: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>&gt;;
+    fn <a href='#tymethod.earliest_state' class='fnname'>earliest_state</a>(&amp;self) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>&gt;;
+    fn <a href='#tymethod.block_header' class='fnname'>block_header</a>(&amp;self, id: <a class='enum' href='../../ethcore/types/ids/enum.BlockId.html' title='ethcore::types::ids::BlockId'>BlockId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt;;
+    fn <a href='#tymethod.block_body' class='fnname'>block_body</a>(&amp;self, id: <a class='enum' href='../../ethcore/types/ids/enum.BlockId.html' title='ethcore::types::ids::BlockId'>BlockId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Body.html' title='ethcore::types::encoded::Body'>Body</a>&gt;;
+    fn <a href='#tymethod.block_receipts' class='fnname'>block_receipts</a>(&amp;self, hash: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;;
+    fn <a href='#tymethod.state_proof' class='fnname'>state_proof</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.StateProof.html' title='ethcore_light::request::StateProof'>StateProof</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;;
+    fn <a href='#tymethod.contract_code' class='fnname'>contract_code</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.ContractCode.html' title='ethcore_light::request::ContractCode'>ContractCode</a>) -&gt; <a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>;
+    fn <a href='#tymethod.header_proof' class='fnname'>header_proof</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.HeaderProof.html' title='ethcore_light::request::HeaderProof'>HeaderProof</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(</a><a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>, <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>)</a>&gt;;
+    fn <a href='#tymethod.ready_transactions' class='fnname'>ready_transactions</a>(&amp;self) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/transaction/struct.PendingTransaction.html' title='ethcore::types::transaction::PendingTransaction'>PendingTransaction</a>&gt;;
+
+    fn <a href='#method.block_headers' class='fnname'>block_headers</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Headers.html' title='ethcore_light::request::Headers'>Headers</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt; { ... }
+    fn <a href='#method.block_bodies' class='fnname'>block_bodies</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Bodies.html' title='ethcore_light::request::Bodies'>Bodies</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Body.html' title='ethcore::types::encoded::Body'>Body</a>&gt;&gt; { ... }
+    fn <a href='#method.receipts' class='fnname'>receipts</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Receipts.html' title='ethcore_light::request::Receipts'>Receipts</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt; { ... }
+    fn <a href='#method.proofs' class='fnname'>proofs</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.StateProofs.html' title='ethcore_light::request::StateProofs'>StateProofs</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt; { ... }
+    fn <a href='#method.contract_codes' class='fnname'>contract_codes</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.ContractCodes.html' title='ethcore_light::request::ContractCodes'>ContractCodes</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt; { ... }
+    fn <a href='#method.header_proofs' class='fnname'>header_proofs</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.HeaderProofs.html' title='ethcore_light::request::HeaderProofs'>HeaderProofs</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt; { ... }
+}</pre><div class='docblock'><p>Defines the operations that a provider for <code>LES</code> must fulfill.</p>
+
+<p>These are defined at <a href="https://github.com/ethcore/parity/wiki/Light-Ethereum-Subprotocol-(LES)">1</a>, but may be subject to change.
+Requests which can&#39;t be fulfilled should return either an empty RLP list
+or empty vector where appropriate.</p>
+</div>
+            <h2 id='required-methods'>Required Methods</h2>
+            <div class='methods'>
+        <h3 id='tymethod.chain_info' class='method stab '><span id='chain_info.v' class='invisible'><code>fn <a href='#tymethod.chain_info' class='fnname'>chain_info</a>(&amp;self) -&gt; <a class='struct' href='../../ethcore/types/blockchain_info/struct.BlockChainInfo.html' title='ethcore::types::blockchain_info::BlockChainInfo'>BlockChainInfo</a></code></span></h3><div class='docblock'><p>Provide current blockchain info.</p>
+</div><h3 id='tymethod.reorg_depth' class='method stab '><span id='reorg_depth.v' class='invisible'><code>fn <a href='#tymethod.reorg_depth' class='fnname'>reorg_depth</a>(&amp;self, a: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>, b: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>&gt;</code></span></h3><div class='docblock'><p>Find the depth of a common ancestor between two blocks.
+If either block is unknown or an ancestor can&#39;t be found
+then return <code>None</code>.</p>
+</div><h3 id='tymethod.earliest_state' class='method stab '><span id='earliest_state.v' class='invisible'><code>fn <a href='#tymethod.earliest_state' class='fnname'>earliest_state</a>(&amp;self) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>&gt;</code></span></h3><div class='docblock'><p>Earliest block where state queries are available.
+If <code>None</code>, no state queries are servable.</p>
+</div><h3 id='tymethod.block_header' class='method stab '><span id='block_header.v' class='invisible'><code>fn <a href='#tymethod.block_header' class='fnname'>block_header</a>(&amp;self, id: <a class='enum' href='../../ethcore/types/ids/enum.BlockId.html' title='ethcore::types::ids::BlockId'>BlockId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt;</code></span></h3><div class='docblock'><p>Get a block header by id.</p>
+</div><h3 id='tymethod.block_body' class='method stab '><span id='block_body.v' class='invisible'><code>fn <a href='#tymethod.block_body' class='fnname'>block_body</a>(&amp;self, id: <a class='enum' href='../../ethcore/types/ids/enum.BlockId.html' title='ethcore::types::ids::BlockId'>BlockId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Body.html' title='ethcore::types::encoded::Body'>Body</a>&gt;</code></span></h3><div class='docblock'><p>Get a block body by id.</p>
+</div><h3 id='tymethod.block_receipts' class='method stab '><span id='block_receipts.v' class='invisible'><code>fn <a href='#tymethod.block_receipts' class='fnname'>block_receipts</a>(&amp;self, hash: &amp;<a class='struct' href='../../ethcore_bigint/hash/struct.H256.html' title='ethcore_bigint::hash::H256'>H256</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Get a block&#39;s receipts as an RLP-encoded list by block hash.</p>
+</div><h3 id='tymethod.state_proof' class='method stab '><span id='state_proof.v' class='invisible'><code>fn <a href='#tymethod.state_proof' class='fnname'>state_proof</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.StateProof.html' title='ethcore_light::request::StateProof'>StateProof</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Get a state proof from a request. Each proof should be a vector
+of rlp-encoded trie nodes, in ascending order by distance from the root.</p>
+</div><h3 id='tymethod.contract_code' class='method stab '><span id='contract_code.v' class='invisible'><code>fn <a href='#tymethod.contract_code' class='fnname'>contract_code</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.ContractCode.html' title='ethcore_light::request::ContractCode'>ContractCode</a>) -&gt; <a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a></code></span></h3><div class='docblock'><p>Get contract code by request. Either the raw bytecode or empty.</p>
+</div><h3 id='tymethod.header_proof' class='method stab '><span id='header_proof.v' class='invisible'><code>fn <a href='#tymethod.header_proof' class='fnname'>header_proof</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.HeaderProof.html' title='ethcore_light::request::HeaderProof'>HeaderProof</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(</a><a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>, <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>)</a>&gt;</code></span></h3><div class='docblock'><p>Provide a header proof from a given Canonical Hash Trie as well as the
+corresponding header. The first element is the block header and the
+second is a merkle proof of the CHT.</p>
+</div><h3 id='tymethod.ready_transactions' class='method stab '><span id='ready_transactions.v' class='invisible'><code>fn <a href='#tymethod.ready_transactions' class='fnname'>ready_transactions</a>(&amp;self) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/transaction/struct.PendingTransaction.html' title='ethcore::types::transaction::PendingTransaction'>PendingTransaction</a>&gt;</code></span></h3><div class='docblock'><p>Provide pending transactions.</p>
+</div></div>
+            <h2 id='provided-methods'>Provided Methods</h2>
+            <div class='methods'>
+        <h3 id='method.block_headers' class='method stab '><span id='block_headers.v' class='invisible'><code>fn <a href='#method.block_headers' class='fnname'>block_headers</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Headers.html' title='ethcore_light::request::Headers'>Headers</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt;</code></span></h3><div class='docblock'><p>Provide a list of headers starting at the requested block,
+possibly in reverse and skipping <code>skip</code> at a time.</p>
+
+<p>The returned vector may have any length in the range [0, <code>max</code>], but the
+results within must adhere to the <code>skip</code> and <code>reverse</code> parameters.</p>
+</div><h3 id='method.block_bodies' class='method stab '><span id='block_bodies.v' class='invisible'><code>fn <a href='#method.block_bodies' class='fnname'>block_bodies</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Bodies.html' title='ethcore_light::request::Bodies'>Bodies</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Body.html' title='ethcore::types::encoded::Body'>Body</a>&gt;&gt;</code></span></h3><div class='docblock'><p>Provide as many as possible of the requested blocks (minus the headers) encoded
+in RLP format.</p>
+</div><h3 id='method.receipts' class='method stab '><span id='receipts.v' class='invisible'><code>fn <a href='#method.receipts' class='fnname'>receipts</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.Receipts.html' title='ethcore_light::request::Receipts'>Receipts</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Provide the receipts as many as possible of the requested blocks.
+Returns a vector of RLP-encoded lists of receipts.</p>
+</div><h3 id='method.proofs' class='method stab '><span id='proofs.v' class='invisible'><code>fn <a href='#method.proofs' class='fnname'>proofs</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.StateProofs.html' title='ethcore_light::request::StateProofs'>StateProofs</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Provide a set of merkle proofs, as requested. Each request is a
+block hash and request parameters.</p>
+
+<p>Returns a vector of RLP-encoded lists satisfying the requests.</p>
+</div><h3 id='method.contract_codes' class='method stab '><span id='contract_codes.v' class='invisible'><code>fn <a href='#method.contract_codes' class='fnname'>contract_codes</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.ContractCodes.html' title='ethcore_light::request::ContractCodes'>ContractCodes</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Provide contract code for the specified (block_hash, account_hash) pairs.
+Each item in the resulting vector is either the raw bytecode or empty.</p>
+</div><h3 id='method.header_proofs' class='method stab '><span id='header_proofs.v' class='invisible'><code>fn <a href='#method.header_proofs' class='fnname'>header_proofs</a>(&amp;self, req: <a class='struct' href='../../ethcore_light/request/struct.HeaderProofs.html' title='ethcore_light::request::HeaderProofs'>HeaderProofs</a>) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;</code></span></h3><div class='docblock'><p>Provide header proofs from the Canonical Hash Tries as well as the headers
+they correspond to -- each element in the returned vector is a 2-tuple.
+The first element is a block header and the second a merkle proof of
+the header in a requested CHT.</p>
+</div></div>
+        <h2 id='implementors'>Implementors</h2>
+        <ul class='item-list' id='implementors-list'>
+    <li><code>impl Provider for <a class='struct' href='../../ethcore_light/client/struct.Client.html' title='ethcore_light::client::Client'>Client</a></code></li>
+<li><code>impl&lt;T:&nbsp;<a class='trait' href='../../ethcore/client/traits/trait.ProvingBlockChainClient.html' title='ethcore::client::traits::ProvingBlockChainClient'>ProvingBlockChainClient</a> + ?<a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sized.html' title='core::marker::Sized'>Sized</a>&gt; Provider for T</code></li>
+</ul><script type="text/javascript" async
+                         src="../../implementors/ethcore_light/provider/trait.Provider.js">
+                 </script></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

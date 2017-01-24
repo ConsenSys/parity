@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `LightProtocol` struct in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, LightProtocol">
+
+    <title>ethcore_light::net::LightProtocol - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a></p><script>window.sidebarCurrent = {name: 'LightProtocol', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content struct">
+<h1 class='fqn'><span class='in-band'>Struct <a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a>::<wbr><a class='struct' href=''>LightProtocol</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-819' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/mod.rs.html#288-298' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct LightProtocol { /* fields omitted */ }</pre><div class='docblock'><p>This is an implementation of the light ethereum network protocol, abstracted
+over a <code>Provider</code> of data and a p2p network.</p>
+
+<p>This is simply designed for request-response purposes. Higher level uses
+of the protocol, such as synchronization, will function as wrappers around
+this system.</p>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl <a class='struct' href='../../ethcore_light/net/struct.LightProtocol.html' title='ethcore_light::net::LightProtocol'>LightProtocol</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-829' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/mod.rs.html#300-654' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.new' class='method'><span id='new.v' class='invisible'><code>fn <a href='#method.new' class='fnname'>new</a>(provider: <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/arc/struct.Arc.html' title='alloc::arc::Arc'>Arc</a>&lt;<a class='trait' href='../../ethcore_light/provider/trait.Provider.html' title='ethcore_light::provider::Provider'>Provider</a>&gt;, params: <a class='struct' href='../../ethcore_light/net/struct.Params.html' title='ethcore_light::net::Params'>Params</a>) -&gt; Self</code></span></h4>
+<div class='docblock'><p>Create a new instance of the protocol manager.</p>
+</div><h4 id='method.peer_status' class='method'><span id='peer_status.v' class='invisible'><code>fn <a href='#method.peer_status' class='fnname'>peer_status</a>(&amp;self, peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='../../ethcore_light/net/struct.Status.html' title='ethcore_light::net::Status'>Status</a>&gt;</code></span></h4>
+<div class='docblock'><p>Attempt to get peer status.</p>
+</div><h4 id='method.request_from' class='method'><span id='request_from.v' class='invisible'><code>fn <a href='#method.request_from' class='fnname'>request_from</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; peer_id: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; request: <a class='enum' href='../../ethcore_light/request/enum.Request.html' title='ethcore_light::request::Request'>Request</a>)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a>&gt;</code></span></h4>
+<div class='docblock'><p>Make a request to a peer.</p>
+
+<p>Fails on: nonexistent peer, network error, peer not server,
+insufficient buffer. Does not check capabilities before sending.
+On success, returns a request id which can later be coordinated
+with an event.</p>
+</div><h4 id='method.make_announcement' class='method'><span id='make_announcement.v' class='invisible'><code>fn <a href='#method.make_announcement' class='fnname'>make_announcement</a>(&amp;self, io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>, announcement: <a class='struct' href='../../ethcore_light/net/struct.Announcement.html' title='ethcore_light::net::Announcement'>Announcement</a>)</code></span></h4>
+<div class='docblock'><p>Make an announcement of new chain head and capabilities to all peers.
+The announcement is expected to be valid.</p>
+</div><h4 id='method.add_handler' class='method'><span id='add_handler.v' class='invisible'><code>fn <a href='#method.add_handler' class='fnname'>add_handler</a>(&amp;mut self, handler: <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/arc/struct.Arc.html' title='alloc::arc::Arc'>Arc</a>&lt;<a class='trait' href='../../ethcore_light/net/trait.Handler.html' title='ethcore_light::net::Handler'>Handler</a>&gt;)</code></span></h4>
+<div class='docblock'><p>Add an event handler.</p>
+
+<p>These are intended to be added when the protocol structure
+is initialized as a means of customizing its behavior,
+and dispatching requests immediately upon events.</p>
+</div><h4 id='method.abort' class='method'><span id='abort.v' class='invisible'><code>fn <a href='#method.abort' class='fnname'>abort</a>(&amp;self)</code></span></h4>
+<div class='docblock'><p>Signal to handlers that network activity is being aborted
+and clear peer data.</p>
+</div><h4 id='method.handle_packet' class='method'><span id='handle_packet.v' class='invisible'><code>fn <a href='#method.handle_packet' class='fnname'>handle_packet</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; packet_id: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; data: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Handle an LES packet using the given io context.
+Packet data is <em>untrusted</em>, which means that invalid data won&#39;t lead to
+issues.</p>
+</div><h4 id='method.on_connect' class='method'><span id='on_connect.v' class='invisible'><code>fn <a href='#method.on_connect' class='fnname'>on_connect</a>(&amp;self, peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>)</code></span></h4>
+<div class='docblock'><p>called when a peer connects.</p>
+</div><h4 id='method.on_disconnect' class='method'><span id='on_disconnect.v' class='invisible'><code>fn <a href='#method.on_disconnect' class='fnname'>on_disconnect</a>(&amp;self, peer: <a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>)</code></span></h4>
+<div class='docblock'><p>called when a peer disconnects.</p>
+</div><h4 id='method.with_context' class='method'><span id='with_context.v' class='invisible'><code>fn <a href='#method.with_context' class='fnname'>with_context</a>&lt;F, T&gt;(&amp;self, io: &amp;<a class='trait' href='../../ethcore_light/net/trait.IoContext.html' title='ethcore_light::net::IoContext'>IoContext</a>, f: F) -&gt; T <span class='where'>where F: <a class='trait' href='https://doc.rust-lang.org/nightly/core/ops/trait.FnOnce.html' title='core::ops::FnOnce'>FnOnce</a>(&amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>) -&gt; T</span></code></span></h4>
+<div class='docblock'><p>Execute the given closure with a basic context derived from the I/O context.</p>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='../../ethcore_network/trait.NetworkProtocolHandler.html' title='ethcore_network::NetworkProtocolHandler'>NetworkProtocolHandler</a> for <a class='struct' href='../../ethcore_light/net/struct.LightProtocol.html' title='ethcore_light::net::LightProtocol'>LightProtocol</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-1227' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/mod.rs.html#1213-1240' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.initialize' class='method'><span id='initialize.v' class='invisible'><code>fn <a href='../../ethcore_network/trait.NetworkProtocolHandler.html#method.initialize' class='fnname'>initialize</a>(&amp;self, io: &amp;<a class='struct' href='../../ethcore_network/host/struct.NetworkContext.html' title='ethcore_network::host::NetworkContext'>NetworkContext</a>)</code></span></h4>
+<div class='docblock'><p>Initialize the handler</p>
+</div><h4 id='method.read' class='method'><span id='read.v' class='invisible'><code>fn <a href='../../ethcore_network/trait.NetworkProtocolHandler.html#tymethod.read' class='fnname'>read</a>(&amp;self, io: &amp;<a class='struct' href='../../ethcore_network/host/struct.NetworkContext.html' title='ethcore_network::host::NetworkContext'>NetworkContext</a>, peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>, packet_id: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>, data: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when new network packet received.</p>
+</div><h4 id='method.connected' class='method'><span id='connected.v' class='invisible'><code>fn <a href='../../ethcore_network/trait.NetworkProtocolHandler.html#tymethod.connected' class='fnname'>connected</a>(&amp;self, io: &amp;<a class='struct' href='../../ethcore_network/host/struct.NetworkContext.html' title='ethcore_network::host::NetworkContext'>NetworkContext</a>, peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>)</code></span></h4>
+<div class='docblock'><p>Called when new peer is connected. Only called when peer supports the same protocol.</p>
+</div><h4 id='method.disconnected' class='method'><span id='disconnected.v' class='invisible'><code>fn <a href='../../ethcore_network/trait.NetworkProtocolHandler.html#tymethod.disconnected' class='fnname'>disconnected</a>(&amp;self, io: &amp;<a class='struct' href='../../ethcore_network/host/struct.NetworkContext.html' title='ethcore_network::host::NetworkContext'>NetworkContext</a>, peer: &amp;<a class='type' href='../../ethcore_network/host/type.PeerId.html' title='ethcore_network::host::PeerId'>PeerId</a>)</code></span></h4>
+<div class='docblock'><p>Called when a previously connected peer disconnects.</p>
+</div><h4 id='method.timeout' class='method'><span id='timeout.v' class='invisible'><code>fn <a href='../../ethcore_network/trait.NetworkProtocolHandler.html#method.timeout' class='fnname'>timeout</a>(&amp;self, io: &amp;<a class='struct' href='../../ethcore_network/host/struct.NetworkContext.html' title='ethcore_network::host::NetworkContext'>NetworkContext</a>, timer: <a class='type' href='../../ethcore_io/service/type.TimerToken.html' title='ethcore_io::service::TimerToken'>TimerToken</a>)</code></span></h4>
+<div class='docblock'><p>Timer function called after a timeout created with <code>NetworkContext::timeout</code>.</p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

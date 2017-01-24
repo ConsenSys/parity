@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["PARITY_GAS_LIMIT_DETERMINANT","Parity tries to round block.gas_limit to multiple of this constant"]],"struct":[["Ethash","Engine using Ethash proof-of-work consensus algorithm, suitable for Ethereum mainnet chains in the Olympic, Frontier and Homestead eras."],["EthashParams","Ethash params."]]});

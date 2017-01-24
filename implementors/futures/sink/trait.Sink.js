@@ -1,0 +1,10 @@
+(function() {var implementors = {};
+implementors["ethsync"] = [];implementors["ethcore_rpc"] = ["impl&lt;T, C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Framed&lt;T, C&gt; <span class='where'>where C: Codec, T: Io</span>","impl&lt;T&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Sender&lt;T&gt;","impl&lt;C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for UdpFramed&lt;C&gt; <span class='where'>where C: UdpCodec</span>",];implementors["ethcore_dapps"] = ["impl&lt;T, C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Framed&lt;T, C&gt; <span class='where'>where C: Codec, T: Io</span>","impl&lt;T&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Sender&lt;T&gt;","impl&lt;C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for UdpFramed&lt;C&gt; <span class='where'>where C: UdpCodec</span>",];implementors["parity"] = ["impl&lt;T, C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Framed&lt;T, C&gt; <span class='where'>where C: Codec, T: Io</span>","impl&lt;T&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for Sender&lt;T&gt;","impl&lt;C&gt; <a class='trait' href='https://docs.rs/futures/0.1/futures/sink/trait.Sink.html' title='futures::sink::Sink'>Sink</a> for UdpFramed&lt;C&gt; <span class='where'>where C: UdpCodec</span>",];
+
+            if (window.register_implementors) {
+                window.register_implementors(implementors);
+            } else {
+                window.pending_implementors = implementors;
+            }
+        
+})()

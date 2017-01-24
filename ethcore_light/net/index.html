@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `net` mod in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, net">
+
+    <title>ethcore_light::net - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a></p><script>window.sidebarCurrent = {name: 'net', ty: 'mod', relpath: '../'};</script><script defer src="../sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Module <a href='../index.html'>ethcore_light</a>::<wbr><a class='mod' href=''>net</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-288' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/mod.rs.html#17-1326' title='goto source code'>[src]</a></span></h1>
+<div class='docblock'><p>LES Protocol Version 1 implementation.</p>
+
+<p>This uses a &quot;Provider&quot; to answer requests.
+See <a href="https://github.com/ethcore/parity/wiki/Light-Ethereum-Subprotocol-(LES)">https://github.com/ethcore/parity/wiki/Light-Ethereum-Subprotocol-(LES)</a></p>
+</div><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='buffer_flow/index.html'
+                                  title='ethcore_light::net::buffer_flow'>buffer_flow</a></td>
+                           <td class='docblock-short'>
+                                <p>LES buffer flow management.</p>
+                           </td>
+                       </tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.Announcement.html'
+                                  title='ethcore_light::net::Announcement'>Announcement</a></td>
+                           <td class='docblock-short'>
+                                <p>An announcement of new chain head or capabilities made by a peer.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.Capabilities.html'
+                                  title='ethcore_light::net::Capabilities'>Capabilities</a></td>
+                           <td class='docblock-short'>
+                                <p>Peer capabilities.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.LightProtocol.html'
+                                  title='ethcore_light::net::LightProtocol'>LightProtocol</a></td>
+                           <td class='docblock-short'>
+                                <p>This is an implementation of the light ethereum network protocol, abstracted
+over a <code>Provider</code> of data and a p2p network.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.Params.html'
+                                  title='ethcore_light::net::Params'>Params</a></td>
+                           <td class='docblock-short'>
+                                <p>Protocol parameters.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.Peer.html'
+                                  title='ethcore_light::net::Peer'>Peer</a></td>
+                           <td class='docblock-short'>
+                                <p>Relevant data to each peer. Not accessible publicly, only <code>pub</code> due to
+limitations of the privacy system.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.ReqId.html'
+                                  title='ethcore_light::net::ReqId'>ReqId</a></td>
+                           <td class='docblock-short'>
+                                <p>A request id.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.Status.html'
+                                  title='ethcore_light::net::Status'>Status</a></td>
+                           <td class='docblock-short'>
+                                <p>A peer status message.</p>
+                           </td>
+                       </tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='enum' href='enum.Error.html'
+                                  title='ethcore_light::net::Error'>Error</a></td>
+                           <td class='docblock-short'>
+                                <p>Kinds of errors which can be encountered in the course of LES.</p>
+                           </td>
+                       </tr></table><h2 id='constants' class='section-header'><a href="#constants">Constants</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.MAX_PROTOCOL_VERSION.html'
+                                  title='ethcore_light::net::MAX_PROTOCOL_VERSION'>MAX_PROTOCOL_VERSION</a></td>
+                           <td class='docblock-short'>
+                                <p>Max protocol version.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.PACKET_COUNT.html'
+                                  title='ethcore_light::net::PACKET_COUNT'>PACKET_COUNT</a></td>
+                           <td class='docblock-short'>
+                                <p>Packet count for LES.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.PROTOCOL_VERSIONS.html'
+                                  title='ethcore_light::net::PROTOCOL_VERSIONS'>PROTOCOL_VERSIONS</a></td>
+                           <td class='docblock-short'>
+                                <p>Supported protocol versions.</p>
+                           </td>
+                       </tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='trait' href='trait.BasicContext.html'
+                                  title='ethcore_light::net::BasicContext'>BasicContext</a></td>
+                           <td class='docblock-short'>
+                                <p>Basic context for the protocol.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='trait' href='trait.EventContext.html'
+                                  title='ethcore_light::net::EventContext'>EventContext</a></td>
+                           <td class='docblock-short'>
+                                <p>Context for a protocol event which has a peer ID attached.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='trait' href='trait.Handler.html'
+                                  title='ethcore_light::net::Handler'>Handler</a></td>
+                           <td class='docblock-short'>
+                                <p>An LES event handler.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='trait' href='trait.IoContext.html'
+                                  title='ethcore_light::net::IoContext'>IoContext</a></td>
+                           <td class='docblock-short'>
+                                <p>An I/O context which allows sending and receiving packets as well as
+disconnecting peers. This is used as a generalization of the portions
+of a p2p network which the light protocol structure makes use of.</p>
+                           </td>
+                       </tr></table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='type' href='type.PeerMap.html'
+                                  title='ethcore_light::net::PeerMap'>PeerMap</a></td>
+                           <td class='docblock-short'>
+                                <p>Type alias for convenience.</p>
+                           </td>
+                       </tr></table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

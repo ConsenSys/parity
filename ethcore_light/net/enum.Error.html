@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `Error` enum in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, Error">
+
+    <title>ethcore_light::net::Error - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a></p><script>window.sidebarCurrent = {name: 'Error', ty: 'enum', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content enum">
+<h1 class='fqn'><span class='in-band'>Enum <a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>net</a>::<wbr><a class='enum' href=''>Error</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-1845' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#42-67' title='goto source code'>[src]</a></span></h1>
+<pre class='rust enum'>pub enum Error {
+    Rlp(<a class='enum' href='../../rlp/rlperrors/enum.DecoderError.html' title='rlp::rlperrors::DecoderError'>DecoderError</a>),
+    Network(<a class='enum' href='../../ethcore_network/error/enum.NetworkError.html' title='ethcore_network::error::NetworkError'>NetworkError</a>),
+    BufferEmpty,
+    UnrecognizedPacket(<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>),
+    UnexpectedHandshake,
+    WrongNetwork,
+    UnknownPeer,
+    UnsolicitedResponse,
+    NotServer,
+    UnsupportedProtocolVersion(<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>),
+    BadProtocolVersion,
+    Overburdened,
+}</pre><div class='docblock'><p>Kinds of errors which can be encountered in the course of LES.</p>
+</div><h2 class='variants'>Variants</h2>
+<span id='variant.Rlp' class='variant'><span id='Rlp.v' class='invisible'><code>Rlp(<a class='enum' href='../../rlp/rlperrors/enum.DecoderError.html' title='rlp::rlperrors::DecoderError'>DecoderError</a>)</code></span></span><div class='docblock'><p>An RLP decoding error.</p>
+</div><span id='variant.Network' class='variant'><span id='Network.v' class='invisible'><code>Network(<a class='enum' href='../../ethcore_network/error/enum.NetworkError.html' title='ethcore_network::error::NetworkError'>NetworkError</a>)</code></span></span><div class='docblock'><p>A network error.</p>
+</div><span id='variant.BufferEmpty' class='variant'><span id='BufferEmpty.v' class='invisible'><code>BufferEmpty</code></span></span><div class='docblock'><p>Out of buffer.</p>
+</div><span id='variant.UnrecognizedPacket' class='variant'><span id='UnrecognizedPacket.v' class='invisible'><code>UnrecognizedPacket(<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>)</code></span></span><div class='docblock'><p>Unrecognized packet code.</p>
+</div><span id='variant.UnexpectedHandshake' class='variant'><span id='UnexpectedHandshake.v' class='invisible'><code>UnexpectedHandshake</code></span></span><div class='docblock'><p>Unexpected handshake.</p>
+</div><span id='variant.WrongNetwork' class='variant'><span id='WrongNetwork.v' class='invisible'><code>WrongNetwork</code></span></span><div class='docblock'><p>Peer on wrong network (wrong NetworkId or genesis hash)</p>
+</div><span id='variant.UnknownPeer' class='variant'><span id='UnknownPeer.v' class='invisible'><code>UnknownPeer</code></span></span><div class='docblock'><p>Unknown peer.</p>
+</div><span id='variant.UnsolicitedResponse' class='variant'><span id='UnsolicitedResponse.v' class='invisible'><code>UnsolicitedResponse</code></span></span><div class='docblock'><p>Unsolicited response.</p>
+</div><span id='variant.NotServer' class='variant'><span id='NotServer.v' class='invisible'><code>NotServer</code></span></span><div class='docblock'><p>Not a server.</p>
+</div><span id='variant.UnsupportedProtocolVersion' class='variant'><span id='UnsupportedProtocolVersion.v' class='invisible'><code>UnsupportedProtocolVersion(<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>)</code></span></span><div class='docblock'><p>Unsupported protocol version.</p>
+</div><span id='variant.BadProtocolVersion' class='variant'><span id='BadProtocolVersion.v' class='invisible'><code>BadProtocolVersion</code></span></span><div class='docblock'><p>Bad protocol version.</p>
+</div><span id='variant.Overburdened' class='variant'><span id='Overburdened.v' class='invisible'><code>Overburdened</code></span></span><div class='docblock'><p>Peer is overburdened.</p>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-451' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#69-87' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.punishment' class='method'><span id='punishment.v' class='invisible'><code>fn <a href='#method.punishment' class='fnname'>punishment</a>(&amp;self) -&gt; Punishment</code></span></h4>
+<div class='docblock'><p>What level of punishment does this error warrant?</p>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html' title='core::fmt::Debug'>Debug</a> for <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-1862' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#41' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.fmt' class='method'><span id='fmt.v' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html#tymethod.fmt' class='fnname'>fmt</a>(&amp;self, __arg_0: &amp;mut <a class='struct' href='https://doc.rust-lang.org/nightly/core/fmt/struct.Formatter.html' title='core::fmt::Formatter'>Formatter</a>) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/core/fmt/type.Result.html' title='core::fmt::Result'>Result</a></code></span></h4>
+<div class='docblock'><p>Formats the value using the given formatter.</p>
+</div></div><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/convert/trait.From.html' title='core::convert::From'>From</a>&lt;<a class='enum' href='../../rlp/rlperrors/enum.DecoderError.html' title='rlp::rlperrors::DecoderError'>DecoderError</a>&gt; for <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-454' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#89-93' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.from' class='method'><span id='from.v' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/convert/trait.From.html#tymethod.from' class='fnname'>from</a>(err: <a class='enum' href='../../rlp/rlperrors/enum.DecoderError.html' title='rlp::rlperrors::DecoderError'>DecoderError</a>) -&gt; Self</code></span></h4>
+<div class='docblock'><p>Performs the conversion.</p>
+</div></div><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/convert/trait.From.html' title='core::convert::From'>From</a>&lt;<a class='enum' href='../../ethcore_network/error/enum.NetworkError.html' title='ethcore_network::error::NetworkError'>NetworkError</a>&gt; for <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-457' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#95-99' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.from-1' class='method'><span id='from.v-1' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/convert/trait.From.html#tymethod.from' class='fnname'>from</a>(err: <a class='enum' href='../../ethcore_network/error/enum.NetworkError.html' title='ethcore_network::error::NetworkError'>NetworkError</a>) -&gt; Self</code></span></h4>
+<div class='docblock'><p>Performs the conversion.</p>
+</div></div><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/fmt/trait.Display.html' title='core::fmt::Display'>Display</a> for <a class='enum' href='../../ethcore_light/net/enum.Error.html' title='ethcore_light::net::Error'>Error</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-460' class='srclink' href='../../src/ethcore_light/ethcore/light/src/net/error.rs.html#101-118' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.fmt-1' class='method'><span id='fmt.v-1' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/fmt/trait.Display.html#tymethod.fmt' class='fnname'>fmt</a>(&amp;self, f: &amp;mut <a class='struct' href='https://doc.rust-lang.org/nightly/core/fmt/struct.Formatter.html' title='core::fmt::Formatter'>Formatter</a>) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/core/fmt/type.Result.html' title='core::fmt::Result'>Result</a></code></span></h4>
+<div class='docblock'><p>Formats the value using the given formatter.</p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

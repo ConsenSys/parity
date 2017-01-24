@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `ethcore_light` crate.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, ethcore_light">
+
+    <title>ethcore_light - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'></p><script>window.sidebarCurrent = {name: 'ethcore_light', ty: 'mod', relpath: '../'};</script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Crate <a class='mod' href=''>ethcore_light</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-0' class='srclink' href='../src/ethcore_light/ethcore/light/src/lib.rs.html#17-73' title='goto source code'>[src]</a></span></h1>
+<div class='docblock'><p>Light client logic and implementation.</p>
+
+<p>A &quot;light&quot; client stores very little chain-related data locally
+unlike a full node, which stores all blocks, headers, receipts, and more.</p>
+
+<p>This enables the client to have a much lower resource footprint in
+exchange for the cost of having to ask the network for state data
+while responding to queries. This makes a light client unsuitable for
+low-latency applications, but perfectly suitable for simple everyday
+use-cases like sending transactions from a personal account.</p>
+
+<p>The light client performs a header-only sync, doing verification and pruning
+historical blocks. Upon pruning, batches of 2048 blocks have a number =&gt; hash
+mapping sealed into &quot;canonical hash tries&quot; which can later be used to verify
+historical block queries from peers.</p>
+</div><h2 id='reexports' class='section-header'><a href="#reexports">Reexports</a></h2>
+<table><tr><td><code>pub use self::<a class='mod'
+                                       href='./provider/index.html'>provider</a>::<a class='trait' href='../ethcore_light/provider/trait.Provider.html' title='ethcore_light::provider::Provider'>Provider</a>;</code></td></tr></table><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='cht/index.html'
+                                  title='ethcore_light::cht'>cht</a></td>
+                           <td class='docblock-short'>
+                                <p>Canonical hash trie definitions and helper functions.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='client/index.html'
+                                  title='ethcore_light::client'>client</a></td>
+                           <td class='docblock-short'>
+                                <p>Light client implementation. Stores data from light sync</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='net/index.html'
+                                  title='ethcore_light::net'>net</a></td>
+                           <td class='docblock-short'>
+                                <p>LES Protocol Version 1 implementation.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='on_demand/index.html'
+                                  title='ethcore_light::on_demand'>on_demand</a></td>
+                           <td class='docblock-short'>
+                                <p>On-demand chain requests over LES. This is a major building block for RPCs.
+The request service is implemented using Futures. Higher level request handlers
+will take the raw data received here and extract meaningful results from it.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='provider/index.html'
+                                  title='ethcore_light::provider'>provider</a></td>
+                           <td class='docblock-short'>
+                                <p>A provider for the LES protocol. This is typically a full node, who can
+give as much data as necessary to its peers.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='request/index.html'
+                                  title='ethcore_light::request'>request</a></td>
+                           <td class='docblock-short'>
+                                <p>LES request types.</p>
+                           </td>
+                       </tr></table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    <script defer src="../search-index.js"></script>
+</body>
+</html>

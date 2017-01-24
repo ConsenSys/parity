@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Buffer","Buffer value."],["Cost","A request cost specification."],["CostTable","A cost table, mapping requests to base and per-request costs."],["FlowParams","A buffer-flow manager handles costs, recharge, limits"]]});

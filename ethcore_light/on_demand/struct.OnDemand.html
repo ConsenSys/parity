@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `OnDemand` struct in crate `ethcore_light`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, OnDemand">
+
+    <title>ethcore_light::on_demand::OnDemand - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>on_demand</a></p><script>window.sidebarCurrent = {name: 'OnDemand', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content struct">
+<h1 class='fqn'><span class='in-band'>Struct <a href='../index.html'>ethcore_light</a>::<wbr><a href='index.html'>on_demand</a>::<wbr><a class='struct' href=''>OnDemand</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-1386' class='srclink' href='../../src/ethcore_light/ethcore/light/src/on_demand/mod.rs.html#92-95' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct OnDemand { /* fields omitted */ }</pre><div class='docblock'><p>On demand request service. See module docs for more details.
+Accumulates info about all peers&#39; capabilities and dispatches
+requests to them accordingly.</p>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl <a class='struct' href='../../ethcore_light/on_demand/struct.OnDemand.html' title='ethcore_light::on_demand::OnDemand'>OnDemand</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-1391' class='srclink' href='../../src/ethcore_light/ethcore/light/src/on_demand/mod.rs.html#106-322' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.header_by_number' class='method'><span id='header_by_number.v' class='invisible'><code>fn <a href='#method.header_by_number' class='fnname'>header_by_number</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req: <a class='struct' href='../../ethcore_light/on_demand/request/struct.HeaderByNumber.html' title='ethcore_light::on_demand::request::HeaderByNumber'>HeaderByNumber</a>)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; <a class='struct' href='../../ethcore_light/on_demand/struct.Response.html' title='ethcore_light::on_demand::Response'>Response</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt;</code></span></h4>
+<div class='docblock'><p>Request a header by block number and CHT root hash.</p>
+</div><h4 id='method.header_by_hash' class='method'><span id='header_by_hash.v' class='invisible'><code>fn <a href='#method.header_by_hash' class='fnname'>header_by_hash</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req: <a class='struct' href='../../ethcore_light/on_demand/request/struct.HeaderByHash.html' title='ethcore_light::on_demand::request::HeaderByHash'>HeaderByHash</a>)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; <a class='struct' href='../../ethcore_light/on_demand/struct.Response.html' title='ethcore_light::on_demand::Response'>Response</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Header.html' title='ethcore::types::encoded::Header'>Header</a>&gt;</code></span></h4>
+<div class='docblock'><p>Request a header by hash. This is less accurate than by-number because we don&#39;t know
+where in the chain this header lies, and therefore can&#39;t find a peer who is supposed to have
+it as easily.</p>
+</div><h4 id='method.block' class='method'><span id='block.v' class='invisible'><code>fn <a href='#method.block' class='fnname'>block</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>, req: <a class='struct' href='../../ethcore_light/on_demand/request/struct.Body.html' title='ethcore_light::on_demand::request::Body'>Body</a>) -&gt; <a class='struct' href='../../ethcore_light/on_demand/struct.Response.html' title='ethcore_light::on_demand::Response'>Response</a>&lt;<a class='struct' href='../../ethcore/types/encoded/struct.Block.html' title='ethcore::types::encoded::Block'>Block</a>&gt;</code></span></h4>
+<div class='docblock'><p>Request a block, given its header. Block bodies are requestable by hash only,
+and the header is required anyway to verify and complete the block body
+-- this just doesn&#39;t obscure the network query.</p>
+</div><h4 id='method.block_receipts' class='method'><span id='block_receipts.v' class='invisible'><code>fn <a href='#method.block_receipts' class='fnname'>block_receipts</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req: <a class='struct' href='../../ethcore_light/on_demand/request/struct.BlockReceipts.html' title='ethcore_light::on_demand::request::BlockReceipts'>BlockReceipts</a>)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; <a class='struct' href='../../ethcore_light/on_demand/struct.Response.html' title='ethcore_light::on_demand::Response'>Response</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/receipt/struct.Receipt.html' title='ethcore::types::receipt::Receipt'>Receipt</a>&gt;&gt;</code></span></h4>
+<div class='docblock'><p>Request the receipts for a block. The header serves two purposes:
+provide the block hash to fetch receipts for, and for verification of the receipts root.</p>
+</div><h4 id='method.account' class='method'><span id='account.v' class='invisible'><code>fn <a href='#method.account' class='fnname'>account</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>, req: <a class='struct' href='../../ethcore_light/on_demand/request/struct.Account.html' title='ethcore_light::on_demand::request::Account'>Account</a>) -&gt; <a class='struct' href='../../ethcore_light/on_demand/struct.Response.html' title='ethcore_light::on_demand::Response'>Response</a>&lt;<a class='struct' href='../../ethcore/types/basic_account/struct.BasicAccount.html' title='ethcore::types::basic_account::BasicAccount'>BasicAccount</a>&gt;</code></span></h4>
+<div class='docblock'><p>Request an account by address and block header -- which gives a hash to query and a state root
+to verify against.</p>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/default/trait.Default.html' title='core::default::Default'>Default</a> for <a class='struct' href='../../ethcore_light/on_demand/struct.OnDemand.html' title='ethcore_light::on_demand::OnDemand'>OnDemand</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-1389' class='srclink' href='../../src/ethcore_light/ethcore/light/src/on_demand/mod.rs.html#97-104' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.default' class='method'><span id='default.v' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/default/trait.Default.html#tymethod.default' class='fnname'>default</a>() -&gt; Self</code></span></h4>
+<div class='docblock'><p>Returns the &quot;default value&quot; for a type. <a href="https://doc.rust-lang.org/nightly/core/default/trait.Default.html#tymethod.default">Read more</a></p>
+</div></div><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='../../ethcore_light/net/trait.Handler.html' title='ethcore_light::net::Handler'>Handler</a> for <a class='struct' href='../../ethcore_light/on_demand/struct.OnDemand.html' title='ethcore_light::on_demand::OnDemand'>OnDemand</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-1490' class='srclink' href='../../src/ethcore_light/ethcore/light/src/on_demand/mod.rs.html#324-499' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.on_connect' class='method'><span id='on_connect.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_connect' class='fnname'>on_connect</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; status: &amp;<a class='struct' href='../../ethcore_light/net/struct.Status.html' title='ethcore_light::net::Status'>Status</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; capabilities: &amp;<a class='struct' href='../../ethcore_light/net/struct.Capabilities.html' title='ethcore_light::net::Capabilities'>Capabilities</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer connects.</p>
+</div><h4 id='method.on_disconnect' class='method'><span id='on_disconnect.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_disconnect' class='fnname'>on_disconnect</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, unfulfilled: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer disconnects, with a list of unfulfilled request IDs as of yet. <a href="../../ethcore_light/net/trait.Handler.html#method.on_disconnect">Read more</a></p>
+</div><h4 id='method.on_announcement' class='method'><span id='on_announcement.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_announcement' class='fnname'>on_announcement</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, announcement: &amp;<a class='struct' href='../../ethcore_light/net/struct.Announcement.html' title='ethcore_light::net::Announcement'>Announcement</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer makes an announcement.</p>
+</div><h4 id='method.on_header_proofs' class='method'><span id='on_header_proofs.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_header_proofs' class='fnname'>on_header_proofs</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; proofs: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(</a><a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>, <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>)</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with header proofs. Each proof should be a block header coupled with a series of trie nodes is ascending order by distance from the root. <a href="../../ethcore_light/net/trait.Handler.html#method.on_header_proofs">Read more</a></p>
+</div><h4 id='method.on_block_headers' class='method'><span id='on_block_headers.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_block_headers' class='fnname'>on_block_headers</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, headers: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with block headers.</p>
+</div><h4 id='method.on_block_bodies' class='method'><span id='on_block_bodies.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_block_bodies' class='fnname'>on_block_bodies</a>(&amp;self, ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, bodies: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with block bodies.</p>
+</div><h4 id='method.on_receipts' class='method'><span id='on_receipts.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_receipts' class='fnname'>on_receipts</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; receipts: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../../ethcore/types/receipt/struct.Receipt.html' title='ethcore::types::receipt::Receipt'>Receipt</a>&gt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with block receipts.</p>
+</div><h4 id='method.on_state_proofs' class='method'><span id='on_state_proofs.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_state_proofs' class='fnname'>on_state_proofs</a>(&amp;self,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; proofs: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a>&gt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with state proofs. Each proof should be a series of trie nodes in ascending order by distance from the root. <a href="../../ethcore_light/net/trait.Handler.html#method.on_state_proofs">Read more</a></p>
+</div><h4 id='method.on_transactions' class='method'><span id='on_transactions.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_transactions' class='fnname'>on_transactions</a>(&amp;self, _ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, _relay: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='struct' href='../../ethcore/types/transaction/struct.UnverifiedTransaction.html' title='ethcore::types::transaction::UnverifiedTransaction'>UnverifiedTransaction</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer requests relay of some transactions.</p>
+</div><h4 id='method.on_code' class='method'><span id='on_code.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_code' class='fnname'>on_code</a>(&amp;self, _ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.EventContext.html' title='ethcore_light::net::EventContext'>EventContext</a>, _req_id: <a class='struct' href='../../ethcore_light/net/struct.ReqId.html' title='ethcore_light::net::ReqId'>ReqId</a>, _codes: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>&amp;[</a><a class='type' href='../../ethcore_util/bytes/type.Bytes.html' title='ethcore_util::bytes::Bytes'>Bytes</a><a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.slice.html'>]</a>)</code></span></h4>
+<div class='docblock'><p>Called when a peer responds with contract code.</p>
+</div><h4 id='method.tick' class='method'><span id='tick.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.tick' class='fnname'>tick</a>(&amp;self, _ctx: &amp;<a class='trait' href='../../ethcore_light/net/trait.BasicContext.html' title='ethcore_light::net::BasicContext'>BasicContext</a>)</code></span></h4>
+<div class='docblock'><p>Called to &quot;tick&quot; the handler periodically.</p>
+</div><h4 id='method.on_abort' class='method'><span id='on_abort.v' class='invisible'><code>fn <a href='../../ethcore_light/net/trait.Handler.html#method.on_abort' class='fnname'>on_abort</a>(&amp;self)</code></span></h4>
+<div class='docblock'><p>Called on abort. This signals to handlers that they should clean up and ignore peers. <a href="../../ethcore_light/net/trait.Handler.html#method.on_abort">Read more</a></p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../";
+        window.currentCrate = "ethcore_light";
+    </script>
+    <script src="../../jquery.js"></script>
+    <script src="../../main.js"></script>
+    <script defer src="../../search-index.js"></script>
+</body>
+</html>

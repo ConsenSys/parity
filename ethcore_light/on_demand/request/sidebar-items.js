@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Error","Errors in verification."]],"struct":[["Account","Request for an account structure."],["BlockReceipts","Request for a block's receipts with header for verification."],["Body","Request for a block, with header and precomputed hash."],["HeaderByHash","Request for a header by hash."],["HeaderByNumber","Request for a header by number."]]});
