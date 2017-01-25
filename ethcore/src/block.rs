@@ -577,7 +577,7 @@ fn push_transactions(block: &mut OpenBlock, transactions: &[SignedTransaction]) 
 		if took > time::Duration::from_millis(slow_tx) {
 			warn!("Heavy ({} ms) transaction in block {:?}: {:?}", took_ms, block.header().number(), hash);
 		}
-		debug!(target: "tx", "Transaction {:?} took: {:.5} ms", hash, took_ms);
+		debug!(target: "tx", "Transaction {:?} took: {:.4} ms", hash, took_ms);
 	}
 	Ok(())
 }
