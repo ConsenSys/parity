@@ -573,11 +573,11 @@ fn push_transactions(block: &mut OpenBlock, transactions: &[SignedTransaction]) 
 		let start = time::Instant::now();
 		block.push_transaction(t.clone(), None)?;
 		let took = start.elapsed();
-		let took_ms = took.as_secs() * 1000 + took.subsec_nanos() as u64 / 1000000;
+		let took_ms = took.as_secs() as f32 * 1000f32 + took.subsec_nanos() as f32 / 1000000f32;
 		if took > time::Duration::from_millis(slow_tx) {
 			warn!("Heavy ({} ms) transaction in block {:?}: {:?}", took_ms, block.header().number(), hash);
 		}
-		debug!(target: "tx", "Transaction {:?} took: {} ms", hash, took_ms);
+		debug!(target: "tx", "Transaction {:?} took: {:.5} ms", hash, took_ms);
 	}
 	Ok(())
 }

@@ -72,6 +72,7 @@ use state_db::StateDB;
 use rand::OsRng;
 use client::registry::Registry;
 use encoded;
+use std::time;
 
 // re-export
 pub use types::blockchain_info::BlockChainInfo;
@@ -439,6 +440,7 @@ impl Client {
 					invalid_blocks.insert(header.hash());
 					continue;
 				}
+				let ok_block_start = time::Instant::now();
 				if let Ok(closed_block) = self.check_and_close_block(&block) {
 					if self.engine.is_proposal(&block.header) {
 						self.block_queue.mark_as_good(&[header.hash()]);
@@ -451,6 +453,9 @@ impl Client {
 
 						self.report.write().accrue_block(&block);
 					}
+					let ok_block_took = ok_block_start.elapsed();
+					let ok_block_took_ms = ok_block_took.as_secs() as f32 * 1000f32 + ok_block_took.subsec_nanos() as f32 / 1000000f32;
+					debug!(target: "tx", "Block {:?} took: {:.4} ms", header.number(), ok_block_took_ms as f32);
 				} else {
 					invalid_blocks.insert(header.hash());
 				}
