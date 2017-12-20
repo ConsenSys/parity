@@ -27,7 +27,7 @@ use jsonrpc_macros::Trailing;
 use v1::Metadata;
 use v1::traits::Traces;
 use v1::helpers::{errors, fake_sign};
-use v1::types::{TraceFilter, LocalizedTrace, BlockNumber, Index, CallRequest, Bytes, BlockTraceResults, TraceResults, TraceOptions, H256};
+use v1::types::{TraceFilter, LocalizedTrace, BlockNumber, Index, CallRequest, Bytes, TraceResults, BlockTraceResults, TraceOptions, H256};
 
 fn to_call_analytics(flags: TraceOptions) -> CallAnalytics {
 	CallAnalytics {

@@ -1322,6 +1322,34 @@ impl BlockChainClient for Client {
 		self.do_virtual_call(&env_info, &mut state, &t, analytics)
 	}
 
+	fn replay_block(&self, block_id: BlockId, analytics: CallAnalytics) -> Result<Vec<Executed>, CallError> {
+		let mut env_info = self.env_info(block_id).ok_or(CallError::StatePruned)?;
+		let body = self.block_body(block_id).ok_or(CallError::StatePruned)?;
+		let mut state = self.state_at_beginning(BlockId::Hash(address.block_hash)).ok_or(CallError::StatePruned)?;
+		let mut txs = body.transactions();
+
+		// Give an error if no Tx in block
+		if txs.len() == 0 {
+			return Err(CallError::TransactionNotFound);
+		}
+
+		const PROOF: &'static str = "Transactions fetched from blockchain; blockchain transactions are valid; qed";
+
+		let mut block_traces: Vec<Executed>;
+
+		for t in txs {
+			let t = SignedTransaction::new(t).expect(PROOF);
+			let x = Executive::new(&mut state, &env_info, self.engine.machine()).transact(&t, TransactOptions::with_no_tracing())?;
+			env_info.gas_used = env_info.gas_used + x.gas_used;
+
+			let res = self.do_virtual_call(&env_info, &mut state, &t, analytics).ok_or(CallError::Execution(ExecutionError))?;
+			block_traces.push(res)
+		}
+
+		return block_traces
+
+	}
+
 	fn mode(&self) -> IpcMode {
 		let r = self.mode.lock().clone().into();
 		trace!(target: "mode", "Asked for mode = {:?}. returning {:?}", &*self.mode.lock(), r);
