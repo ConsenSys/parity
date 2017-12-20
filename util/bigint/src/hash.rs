@@ -1,58 +1,24 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
-// This file is part of Parity.
-
-// Parity is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// Parity is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Parity.  If not, see <http://www.gnu.org/licenses/>.
+// Copyright 2015-2017 Parity Technologies
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
 
 //! General hash types, a fixed-size raw-data type used as the output of hash functions.
 
-use std::{ops, fmt, cmp};
+use std::{ops, fmt, cmp, str};
 use std::cmp::{min, Ordering};
 use std::ops::{Deref, DerefMut, BitXor, BitAnd, BitOr, IndexMut, Index};
 use std::hash::{Hash, Hasher, BuildHasherDefault};
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use rand::Rng;
+use rand::{Rand, Rng};
 use rand::os::OsRng;
-use rustc_serialize::hex::{FromHex, FromHexError};
-use bigint::{Uint, U256};
+use rustc_hex::{FromHex, FromHexError};
+use plain_hasher::PlainHasher;
+use uint::U256;
 use libc::{c_void, memcmp};
-
-/// Trait for a fixed-size byte array to be used as the output of hash functions.
-pub trait FixedHash: Sized {
-	/// Create a new, zero-initialised, instance.
-	fn new() -> Self;
-	/// Synonym for `new()`. Prefer to new as it's more readable.
-	fn zero() -> Self;
-	/// Create a new, cryptographically random, instance.
-	fn random() -> Self;
-	/// Assign self have a cryptographically random value.
-	fn randomize(&mut self);
-	/// Get the size of this object in bytes.
-	fn len() -> usize;
-	/// Convert a slice of bytes of length `len()` to an instance of this type.
-	fn from_slice(src: &[u8]) -> Self;
-	/// Assign self to be of the same value as a slice of bytes of length `len()`.
-	fn clone_from_slice(&mut self, src: &[u8]) -> usize;
-	/// Copy the data of this object into some mutable slice of length `len()`.
-	fn copy_to(&self, dest: &mut [u8]);
-	/// Returns `true` if all bits set in `b` are also set in `self`.
-	fn contains<'a>(&'a self, b: &'a Self) -> bool;
-	/// Returns `true` if no bits are set.
-	fn is_zero(&self) -> bool;
-	/// Returns the lowest 8 bytes interpreted as a BigEndian integer.
-	fn low_u64(&self) -> u64;
-}
 
 /// Return `s` without the `0x` at the beginning of it, if any.
 pub fn clean_0x(s: &str) -> &str {
@@ -105,57 +71,68 @@ macro_rules! impl_hash {
 			}
 		}
 
-		impl FixedHash for $from {
-			fn new() -> $from {
+		impl $from {
+			/// Create a new, zero-initialised, instance.
+			pub fn new() -> $from {
 				$from([0; $size])
 			}
 
-			fn zero() -> $from {
+			/// Synonym for `new()`. Prefer to new as it's more readable.
+			pub fn zero() -> $from {
 				$from([0; $size])
 			}
 
-			fn random() -> $from {
+			/// Create a new, cryptographically random, instance.
+			pub fn random() -> $from {
 				let mut hash = $from::new();
 				hash.randomize();
 				hash
 			}
 
-			fn randomize(&mut self) {
+			/// Assign self have a cryptographically random value.
+			pub fn randomize(&mut self) {
 				let mut rng = OsRng::new().unwrap();
-				rng.fill_bytes(&mut self.0);
+				*self= $from::rand(&mut rng);
 			}
 
-			fn len() -> usize {
+			/// Get the size of this object in bytes.
+			pub fn len() -> usize {
 				$size
 			}
 
 			#[inline]
-			fn clone_from_slice(&mut self, src: &[u8]) -> usize {
+			/// Assign self to be of the same value as a slice of bytes of length `len()`.
+			pub fn clone_from_slice(&mut self, src: &[u8]) -> usize {
 				let min = cmp::min($size, src.len());
 				self.0[..min].copy_from_slice(&src[..min]);
 				min
 			}
 
-			fn from_slice(src: &[u8]) -> Self {
+			/// Convert a slice of bytes of length `len()` to an instance of this type.
+			pub fn from_slice(src: &[u8]) -> Self {
 				let mut r = Self::new();
 				r.clone_from_slice(src);
 				r
 			}
 
-			fn copy_to(&self, dest: &mut[u8]) {
+			/// Copy the data of this object into some mutable slice of length `len()`.
+			pub fn copy_to(&self, dest: &mut[u8]) {
 				let min = cmp::min($size, dest.len());
 				dest[..min].copy_from_slice(&self.0[..min]);
 			}
 
-			fn contains<'a>(&'a self, b: &'a Self) -> bool {
+			/// Returns `true` if all bits set in `b` are also set in `self`.
+			pub fn contains<'a>(&'a self, b: &'a Self) -> bool {
 				&(b & self) == b
 			}
 
-			fn is_zero(&self) -> bool {
+			/// Returns `true` if no bits are set.
+			pub fn is_zero(&self) -> bool {
 				self.eq(&Self::new())
 			}
 
-			fn low_u64(&self) -> u64 {
+			/// Returns the lowest 8 bytes interpreted as a BigEndian integer.
+			pub fn low_u64(&self) -> u64 {
 				let mut ret = 0u64;
 				for i in 0..min($size, 8) {
 					ret |= (self.0[$size - 1 - i] as u64) << (i * 8);
@@ -164,7 +141,7 @@ macro_rules! impl_hash {
 			}
 		}
 
-		impl FromStr for $from {
+		impl str::FromStr for $from {
 			type Err = FromHexError;
 
 			fn from_str(s: &str) -> Result<$from, FromHexError> {
@@ -372,9 +349,9 @@ macro_rules! impl_hash {
 			fn from(s: &'static str) -> $from {
 				let s = clean_0x(s);
 				if s.len() % 2 == 1 {
-					$from::from_str(&("0".to_owned() + s)).unwrap()
+					("0".to_owned() + s).parse().unwrap()
 				} else {
-					$from::from_str(s).unwrap()
+					s.parse().unwrap()
 				}
 			}
 		}
@@ -382,6 +359,14 @@ macro_rules! impl_hash {
 		impl<'a> From<&'a [u8]> for $from {
 			fn from(s: &'a [u8]) -> $from {
 				$from::from_slice(s)
+			}
+		}
+
+		impl Rand for $from {
+			fn rand<R: Rng>(r: &mut R) -> Self {
+				let mut hash = $from::new();
+				r.fill_bytes(&mut hash.0);
+				hash
 			}
 		}
 	}
@@ -458,43 +443,9 @@ impl_hash!(H520, 65);
 impl_hash!(H1024, 128);
 impl_hash!(H2048, 256);
 
+#[cfg(feature="heapsizeof")]
 known_heap_size!(0, H32, H64, H128, H160, H256, H264, H512, H520, H1024, H2048);
 // Specialized HashMap and HashSet
-
-/// Hasher that just takes 8 bytes of the provided value.
-/// May only be used for keys which are 32 bytes.
-pub struct PlainHasher {
-	prefix: [u8; 8],
-	_marker: [u64; 0], // for alignment
-}
-
-impl Default for PlainHasher {
-	#[inline]
-	fn default() -> PlainHasher {
-		PlainHasher {
-			prefix: [0; 8],
-			_marker: [0; 0],
-		}
-	}
-}
-
-impl Hasher for PlainHasher {
-	#[inline]
-	fn finish(&self) -> u64 {
-		unsafe { ::std::mem::transmute(self.prefix) }
-	}
-
-	#[inline]
-	fn write(&mut self, bytes: &[u8]) {
-		debug_assert!(bytes.len() == 32);
-
-		for quarter in bytes.chunks(8) {
-			for (x, y) in self.prefix.iter_mut().zip(quarter) {
-				*x ^= *y
-			}
-		}
-	}
-}
 
 /// Specialized version of `HashMap` with H256 keys and fast hashing function.
 pub type H256FastMap<T> = HashMap<H256, T, BuildHasherDefault<PlainHasher>>;
@@ -504,7 +455,6 @@ pub type H256FastSet = HashSet<H256, BuildHasherDefault<PlainHasher>>;
 #[cfg(test)]
 mod tests {
 	use hash::*;
-	use bigint::*;
 	use std::str::FromStr;
 
 	#[test]

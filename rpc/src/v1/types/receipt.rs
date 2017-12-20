@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use v1::types::{Log, H160, H256, H2048, U256};
-use ethcore::receipt::{Receipt as EthReceipt, RichReceipt, LocalizedReceipt};
+use v1::types::{Log, H160, H256, H2048, U256, U64};
+use ethcore::receipt::{Receipt as EthReceipt, RichReceipt, LocalizedReceipt, TransactionOutcome};
 
 /// Receipt
 #[derive(Debug, Serialize)]
@@ -45,10 +45,29 @@ pub struct Receipt {
 	pub logs: Vec<Log>,
 	/// State Root
 	#[serde(rename="root")]
-	pub state_root: H256,
+	pub state_root: Option<H256>,
 	/// Logs bloom
 	#[serde(rename="logsBloom")]
 	pub logs_bloom: H2048,
+	/// Status code
+	#[serde(rename="status")]
+	pub status_code: Option<U64>,
+}
+
+impl Receipt {
+	fn outcome_to_state_root(outcome: TransactionOutcome) -> Option<H256> {
+		match outcome {
+			TransactionOutcome::Unknown | TransactionOutcome::StatusCode(_) => None,
+			TransactionOutcome::StateRoot(root) => Some(root.into()),
+		}
+	}
+
+	fn outcome_to_status_code(outcome: &TransactionOutcome) -> Option<U64> {
+		match *outcome {
+			TransactionOutcome::Unknown | TransactionOutcome::StateRoot(_) => None,
+			TransactionOutcome::StatusCode(ref code) => Some((*code as u64).into()),
+		}
+	}
 }
 
 impl From<LocalizedReceipt> for Receipt {
@@ -62,7 +81,8 @@ impl From<LocalizedReceipt> for Receipt {
 			gas_used: Some(r.gas_used.into()),
 			contract_address: r.contract_address.map(Into::into),
 			logs: r.logs.into_iter().map(Into::into).collect(),
-			state_root: r.state_root.into(),
+			status_code: Self::outcome_to_status_code(&r.outcome),
+			state_root: Self::outcome_to_state_root(r.outcome),
 			logs_bloom: r.log_bloom.into(),
 		}
 	}
@@ -79,7 +99,8 @@ impl From<RichReceipt> for Receipt {
 			gas_used: Some(r.gas_used.into()),
 			contract_address: r.contract_address.map(Into::into),
 			logs: r.logs.into_iter().map(Into::into).collect(),
-			state_root: r.state_root.into(),
+			status_code: Self::outcome_to_status_code(&r.outcome),
+			state_root: Self::outcome_to_state_root(r.outcome),
 			logs_bloom: r.log_bloom.into(),
 		}
 	}
@@ -96,7 +117,8 @@ impl From<EthReceipt> for Receipt {
 			gas_used: None,
 			contract_address: None,
 			logs: r.logs.into_iter().map(Into::into).collect(),
-			state_root: r.state_root.into(),
+			status_code: Self::outcome_to_status_code(&r.outcome),
+			state_root: Self::outcome_to_state_root(r.outcome),
 			logs_bloom: r.log_bloom.into(),
 		}
 	}
@@ -109,7 +131,7 @@ mod tests {
 
 	#[test]
 	fn receipt_serialization() {
-		let s = r#"{"transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000000","transactionIndex":"0x0","blockHash":"0xed76641c68a1c641aee09a94b3b471f4dc0316efe5ac19cf488e2674cf8d05b5","blockNumber":"0x4510c","cumulativeGasUsed":"0x20","gasUsed":"0x10","contractAddress":null,"logs":[{"address":"0x33990122638b9132ca29c723bdf037f1a891a70c","topics":["0xa6697e974e6a320f454390be03f74955e8978f1a6971ea6730542e37b66179bc","0x4861736852656700000000000000000000000000000000000000000000000000"],"data":"0x","blockHash":"0xed76641c68a1c641aee09a94b3b471f4dc0316efe5ac19cf488e2674cf8d05b5","blockNumber":"0x4510c","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000000","transactionIndex":"0x0","logIndex":"0x1","transactionLogIndex":null,"type":"mined"}],"root":"0x000000000000000000000000000000000000000000000000000000000000000a","logsBloom":"0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f"}"#;
+		let s = r#"{"transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000000","transactionIndex":"0x0","blockHash":"0xed76641c68a1c641aee09a94b3b471f4dc0316efe5ac19cf488e2674cf8d05b5","blockNumber":"0x4510c","cumulativeGasUsed":"0x20","gasUsed":"0x10","contractAddress":null,"logs":[{"address":"0x33990122638b9132ca29c723bdf037f1a891a70c","topics":["0xa6697e974e6a320f454390be03f74955e8978f1a6971ea6730542e37b66179bc","0x4861736852656700000000000000000000000000000000000000000000000000"],"data":"0x","blockHash":"0xed76641c68a1c641aee09a94b3b471f4dc0316efe5ac19cf488e2674cf8d05b5","blockNumber":"0x4510c","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000000","transactionIndex":"0x0","logIndex":"0x1","transactionLogIndex":null,"type":"mined"}],"root":"0x000000000000000000000000000000000000000000000000000000000000000a","logsBloom":"0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f","status":"0x1"}"#;
 
 		let receipt = Receipt {
 			transaction_hash: Some(0.into()),
@@ -135,7 +157,8 @@ mod tests {
 				log_type: "mined".into(),
 			}],
 			logs_bloom: 15.into(),
-			state_root: 10.into(),
+			state_root: Some(10.into()),
+			status_code: Some(1u64.into()),
 		};
 
 		let serialized = serde_json::to_string(&receipt).unwrap();

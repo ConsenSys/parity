@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,11 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-import 'babel-polyfill';
 import 'whatwg-fetch';
-
-import es6Promise from 'es6-promise';
-es6Promise.polyfill();
 
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -26,24 +22,23 @@ import { AppContainer } from 'react-hot-loader';
 
 import injectTapEventPlugin from 'react-tap-event-plugin';
 
-import SecureApi from '~/secureApi';
-import ContractInstances from '~/contracts';
+import ContractInstances from '@parity/shared/lib/contracts';
+import { initStore } from '@parity/shared/lib/redux';
+import { setApi } from '@parity/shared/lib/redux/providers/apiActions';
+import ContextProvider from '@parity/ui/lib/ContextProvider';
+import muiTheme from '@parity/ui/lib/Theme';
+import { patchApi } from '@parity/shared/lib/util/tx';
 
-import { initStore } from '~/redux';
-import ContextProvider from '~/ui/ContextProvider';
-import muiTheme from '~/ui/Theme';
+import SecureApi from './secureApi';
 
-import { patchApi } from '~/util/tx';
-import { setApi } from '~/redux/providers/apiActions';
-
-import '~/environment';
-
-import '../assets/fonts/Roboto/font.css';
-import '../assets/fonts/RobotoMono/font.css';
+import './ShellExtend';
+import '@parity/shared/lib/environment';
+import '@parity/shared/assets/fonts/Roboto/font.css';
+import '@parity/shared/assets/fonts/RobotoMono/font.css';
 
 injectTapEventPlugin();
 
-import ParityBar from '~/views/ParityBar';
+import ParityBar from './ParityBar';
 
 // Test transport (std transport should be provided as global object)
 class FakeTransport {
@@ -56,15 +51,23 @@ class FakeTransport {
     return Promise.reject('not connected');
   }
 
+  addMiddleware () {
+  }
+
   on () {
   }
 }
 
 class FrameSecureApi extends SecureApi {
   constructor (transport) {
-    super('', null, () => {
-      return transport;
-    });
+    super(
+      transport.uiUrl,
+      null,
+      () => transport,
+      () => 'http:'
+    );
+
+    this._isConnected = false;
   }
 
   connect () {
@@ -72,6 +75,7 @@ class FrameSecureApi extends SecureApi {
     this.emit('connecting');
     // Fire connected event with some delay.
     setTimeout(() => {
+      this._isConnected = true;
       this.emit('connected');
     });
   }
@@ -85,14 +89,19 @@ class FrameSecureApi extends SecureApi {
   }
 
   isConnected () {
-    return true;
+    return this._isConnected;
   }
 }
 
-const api = new FrameSecureApi(window.secureTransport || new FakeTransport());
+const transport = window.secureTransport || new FakeTransport();
+const uiUrl = transport.uiUrl || 'http://127.0.0.1:8180';
+
+transport.uiUrlWithProtocol = uiUrl;
+transport.uiUrl = uiUrl.replace('http://', '').replace('https://', '');
+const api = new FrameSecureApi(transport);
 
 patchApi(api);
-ContractInstances.create(api);
+ContractInstances.get(api);
 
 const store = initStore(api, null, true);
 
@@ -102,7 +111,7 @@ store.dispatch(setApi(api));
 window.secureApi = api;
 
 const app = (
-  <ParityBar dapp externalLink={ 'http://127.0.0.1:8180' } />
+  <ParityBar dapp externalLink={ uiUrl } />
 );
 const container = document.querySelector('#container');
 
@@ -118,3 +127,9 @@ ReactDOM.render(
   </AppContainer>,
   container
 );
+
+// testing, signer plugins
+import '@parity/plugin-signer-account';
+import '@parity/plugin-signer-default';
+import '@parity/plugin-signer-hardware';
+import '@parity/plugin-signer-qr';

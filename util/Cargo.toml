@@ -3,40 +3,37 @@ description = "Ethcore utility library"
 homepage = "http://parity.io"
 license = "GPL-3.0"
 name = "ethcore-util"
-version = "1.6.0"
+version = "1.9.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 build = "build.rs"
 
 [dependencies]
 log = "0.3"
-env_logger = "0.3"
-rustc-serialize = "0.3"
-arrayvec = "0.3"
-rand = "0.3.12"
-time = "0.1.34"
-rocksdb = { git = "https://github.com/ethcore/rust-rocksdb" }
-lazy_static = "0.2"
-eth-secp256k1 = { git = "https://github.com/ethcore/rust-secp256k1" }
-rust-crypto = "0.2.34"
-elastic-array = { git = "https://github.com/ethcore/elastic-array" }
+env_logger = "0.4"
+rustc-hex = "1.0"
+eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
+elastic-array = "0.9"
 rlp = { path = "rlp" }
-heapsize = { version = "0.3", features = ["unstable"] }
-itertools = "0.4"
-sha3 = { path = "sha3" }
+heapsize = "0.4"
+keccak-hash = { path = "hash" }
 clippy = { version = "0.0.103", optional = true}
-ethcore-devtools = { path = "../devtools" }
 libc = "0.2.7"
-vergen = "0.1"
 target_info = "0.1"
-ethcore-bigint = { path = "bigint" }
-parking_lot = "0.3"
-using_queue = { path = "using_queue" }
-table = { path = "table" }
-ansi_term = "0.7"
+ethcore-bigint = { path = "bigint", features = ["heapsizeof"] }
+parking_lot = "0.4"
 tiny-keccak= "1.0"
-ethcore-bloom-journal = { path = "bloom" }
-regex = "0.1"
-lru-cache = "0.1.0"
+ethcore-logger = { path = "../logger" }
+triehash = { path = "triehash" }
+hashdb = { path = "hashdb" }
+patricia-trie = { path = "patricia_trie" }
+ethcore-bytes = { path = "bytes" }
+memorydb = { path = "memorydb" }
+util-error = { path = "error" }
+kvdb = { path = "kvdb" }
+journaldb = { path = "journaldb" }
+
+[dev-dependencies]
+kvdb-memorydb = { path = "kvdb-memorydb" }
 
 [features]
 default = []
@@ -44,5 +41,5 @@ dev = ["clippy"]
 final = []
 
 [build-dependencies]
-vergen = "*"
+vergen = "0.1"
 rustc_version = "0.1.0"

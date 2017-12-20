@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,11 +16,14 @@
 
 //! Trace database.
 use std::ops::Deref;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use bloomchain::{Number, Config as BloomConfig};
 use bloomchain::group::{BloomGroupDatabase, BloomGroupChain, GroupPosition, BloomGroup};
-use util::{H256, H264, Database, DBTransaction, RwLock, HeapSizeOf};
+use heapsize::HeapSizeOf;
+use bigint::hash::{H256, H264};
+use kvdb::{KeyValueDB, DBTransaction};
+use parking_lot::RwLock;
 use header::BlockNumber;
 use trace::{LocalizedTrace, Config, Filter, Database as TraceDatabase, ImportRequest, DatabaseExtras};
 use db::{self, Key, Writable, Readable, CacheUpdatePolicy};
@@ -106,7 +109,7 @@ pub struct TraceDB<T> where T: DatabaseExtras {
 	blooms: RwLock<HashMap<TraceGroupPosition, blooms::BloomGroup>>,
 	cache_manager: RwLock<CacheManager<CacheId>>,
 	// db
-	tracesdb: Arc<Database>,
+	tracesdb: Arc<KeyValueDB>,
 	// config,
 	bloom_config: BloomConfig,
 	// tracing enabled
@@ -126,8 +129,8 @@ impl<T> BloomGroupDatabase for TraceDB<T> where T: DatabaseExtras {
 
 impl<T> TraceDB<T> where T: DatabaseExtras {
 	/// Creates new instance of `TraceDB`.
-	pub fn new(config: Config, tracesdb: Arc<Database>, extras: Arc<T>) -> Self {
-		let mut batch = DBTransaction::new(&tracesdb);
+	pub fn new(config: Config, tracesdb: Arc<KeyValueDB>, extras: Arc<T>) -> Self {
+		let mut batch = DBTransaction::new();
 		let genesis = extras.block_hash(0)
 			.expect("Genesis block is always inserted upon extras db creation qed");
 		batch.write(db::COL_TRACE, &genesis, &FlatBlockTraces::default());
@@ -215,8 +218,11 @@ impl<T> TraceDB<T> where T: DatabaseExtras {
 		block_number: BlockNumber,
 		tx_number: usize
 	) -> Vec<LocalizedTrace> {
-		let tx_hash = self.extras.transaction_hash(block_number, tx_number)
-			.expect("Expected to find transaction hash. Database is probably corrupted");
+		let (trace_tx_number, trace_tx_hash) = match self.extras.transaction_hash(block_number, tx_number) {
+			Some(hash) => (Some(tx_number), Some(hash.clone())),
+			//None means trace without transaction (reward)
+			None => (None, None),
+		};
 
 		let flat_traces: Vec<FlatTrace> = traces.into();
 		flat_traces.into_iter()
@@ -227,8 +233,8 @@ impl<T> TraceDB<T> where T: DatabaseExtras {
 						result: trace.result,
 						subtraces: trace.subtraces,
 						trace_address: trace.trace_address.into_iter().collect(),
-						transaction_number: tx_number,
-						transaction_hash: tx_hash.clone(),
+						transaction_number: trace_tx_number,
+						transaction_hash: trace_tx_hash,
 						block_number: block_number,
 						block_hash: block_hash
 					}),
@@ -305,7 +311,7 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 	}
 
 	fn trace(&self, block_number: BlockNumber, tx_position: usize, trace_position: Vec<usize>) -> Option<LocalizedTrace> {
-		let trace_position_deq = trace_position.into_iter().collect();
+		let trace_position_deq = VecDeque::from(trace_position);
 		self.extras.block_hash(block_number)
 			.and_then(|block_hash| self.transactions_traces(&block_hash)
 				.and_then(|traces| traces.into_iter().nth(tx_position))
@@ -321,8 +327,8 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 						result: trace.result,
 						subtraces: trace.subtraces,
 						trace_address: trace.trace_address.into_iter().collect(),
-						transaction_number: tx_position,
-						transaction_hash: tx_hash,
+						transaction_number: Some(tx_position),
+						transaction_hash: Some(tx_hash),
 						block_number: block_number,
 						block_hash: block_hash,
 					}
@@ -345,8 +351,8 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 						result: trace.result,
 						subtraces: trace.subtraces,
 						trace_address: trace.trace_address.into_iter().collect(),
-						transaction_number: tx_position,
-						transaction_hash: tx_hash.clone(),
+						transaction_number: Some(tx_position),
+						transaction_hash: Some(tx_hash.clone()),
 						block_number: block_number,
 						block_hash: block_hash
 					})
@@ -363,8 +369,11 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 						.map(Into::<Vec<FlatTrace>>::into)
 						.enumerate()
 						.flat_map(|(tx_position, traces)| {
-							let tx_hash = self.extras.transaction_hash(block_number, tx_position)
-								.expect("Expected to find transaction hash. Database is probably corrupted");
+							let (trace_tx_number, trace_tx_hash) = match self.extras.transaction_hash(block_number, tx_position) {
+								Some(hash) => (Some(tx_position), Some(hash.clone())),
+								//None means trace without transaction (reward)
+								None => (None, None),
+							};
 
 							traces.into_iter()
 								.map(|trace| LocalizedTrace {
@@ -372,8 +381,8 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 									result: trace.result,
 									subtraces: trace.subtraces,
 									trace_address: trace.trace_address.into_iter().collect(),
-									transaction_number: tx_position,
-									transaction_hash: tx_hash.clone(),
+									transaction_number: trace_tx_number,
+									transaction_hash: trace_tx_hash,
 									block_number: block_number,
 									block_hash: block_hash,
 								})
@@ -404,14 +413,17 @@ impl<T> TraceDatabase for TraceDB<T> where T: DatabaseExtras {
 mod tests {
 	use std::collections::HashMap;
 	use std::sync::Arc;
-	use util::{Address, U256, H256, Database, DatabaseConfig, DBTransaction};
-	use devtools::RandomTempPath;
+	use bigint::prelude::U256;
+	use bigint::hash::H256;
+	use util::Address;
+	use kvdb::{DBTransaction, KeyValueDB};
+	use kvdb_memorydb;
 	use header::BlockNumber;
 	use trace::{Config, TraceDB, Database as TraceDatabase, DatabaseExtras, ImportRequest};
 	use trace::{Filter, LocalizedTrace, AddressesFilter, TraceError};
 	use trace::trace::{Call, Action, Res};
 	use trace::flat::{FlatTrace, FlatBlockTraces, FlatTransactionTraces};
-	use types::executed::CallType;
+	use evm::CallType;
 
 	struct NoopExtras;
 
@@ -455,14 +467,13 @@ mod tests {
 		}
 	}
 
-	fn new_db(path: &str) -> Arc<Database> {
-		Arc::new(Database::open(&DatabaseConfig::with_columns(::db::NUM_COLUMNS), path).unwrap())
+	fn new_db() -> Arc<KeyValueDB> {
+		Arc::new(kvdb_memorydb::create(::db::NUM_COLUMNS.unwrap_or(0)))
 	}
 
 	#[test]
 	fn test_reopening_db_with_tracing_off() {
-		let temp = RandomTempPath::new();
-		let db = new_db(temp.as_str());
+		let db = new_db();
 		let mut config = Config::default();
 
 		// set autotracing
@@ -476,8 +487,7 @@ mod tests {
 
 	#[test]
 	fn test_reopening_db_with_tracing_on() {
-		let temp = RandomTempPath::new();
-		let db = new_db(temp.as_str());
+		let db = new_db();
 		let mut config = Config::default();
 
 		// set tracing on
@@ -546,8 +556,8 @@ mod tests {
 			result: Res::FailedCall(TraceError::OutOfGas),
 			trace_address: vec![],
 			subtraces: 0,
-			transaction_number: 0,
-			transaction_hash: tx_hash,
+			transaction_number: Some(0),
+			transaction_hash: Some(tx_hash),
 			block_number: block_number,
 			block_hash: block_hash,
 		}
@@ -555,8 +565,7 @@ mod tests {
 
 	#[test]
 	fn test_import_non_canon_traces() {
-		let temp = RandomTempPath::new();
-		let db = Arc::new(Database::open(&DatabaseConfig::with_columns(::db::NUM_COLUMNS), temp.as_str()).unwrap());
+		let db = new_db();
 		let mut config = Config::default();
 		config.enabled = true;
 		let block_0 = H256::from(0xa1);
@@ -574,7 +583,7 @@ mod tests {
 
 		// import block 0
 		let request = create_noncanon_import_request(0, block_0.clone());
-		let mut batch = DBTransaction::new(&db);
+		let mut batch = DBTransaction::new();
 		tracedb.import(&mut batch, request);
 		db.write(batch).unwrap();
 
@@ -584,8 +593,7 @@ mod tests {
 
 	#[test]
 	fn test_import() {
-		let temp = RandomTempPath::new();
-		let db = Arc::new(Database::open(&DatabaseConfig::with_columns(::db::NUM_COLUMNS), temp.as_str()).unwrap());
+		let db = new_db();
 		let mut config = Config::default();
 		config.enabled = true;
 		let block_1 = H256::from(0xa1);
@@ -605,7 +613,7 @@ mod tests {
 
 		// import block 1
 		let request = create_simple_import_request(1, block_1.clone());
-		let mut batch = DBTransaction::new(&db);
+		let mut batch = DBTransaction::new();
 		tracedb.import(&mut batch, request);
 		db.write(batch).unwrap();
 
@@ -621,7 +629,7 @@ mod tests {
 
 		// import block 2
 		let request = create_simple_import_request(2, block_2.clone());
-		let mut batch = DBTransaction::new(&db);
+		let mut batch = DBTransaction::new();
 		tracedb.import(&mut batch, request);
 		db.write(batch).unwrap();
 
@@ -664,8 +672,7 @@ mod tests {
 
 	#[test]
 	fn query_trace_after_reopen() {
-		let temp = RandomTempPath::new();
-		let db = new_db(temp.as_str());
+		let db = new_db();
 		let mut config = Config::default();
 		let mut extras = Extras::default();
 		let block_0 = H256::from(0xa1);
@@ -684,7 +691,7 @@ mod tests {
 
 			// import block 1
 			let request = create_simple_import_request(1, block_0.clone());
-			let mut batch = DBTransaction::new(&db);
+			let mut batch = DBTransaction::new();
 			tracedb.import(&mut batch, request);
 			db.write(batch).unwrap();
 		}
@@ -698,8 +705,7 @@ mod tests {
 
 	#[test]
 	fn query_genesis() {
-		let temp = RandomTempPath::new();
-		let db = new_db(temp.as_str());
+		let db = new_db();
 		let mut config = Config::default();
 		let mut extras = Extras::default();
 		let block_0 = H256::from(0xa1);

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -29,5 +29,18 @@ mod inner {
 	pub use self::parity_ui_precompiled::*;
 }
 
+#[cfg(feature = "parity-ui-old-dev")]
+pub mod old {
+	extern crate parity_ui_old_dev;
+
+	pub use self::parity_ui_old_dev::*;
+}
+
+#[cfg(feature = "parity-ui-old-precompiled")]
+pub mod old {
+	extern crate parity_ui_old_precompiled;
+
+	pub use self::parity_ui_old_precompiled::*;
+}
 
 pub use self::inner::*;

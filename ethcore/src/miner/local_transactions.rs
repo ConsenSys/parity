@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,9 +17,10 @@
 //! Local Transactions List.
 
 use linked_hash_map::LinkedHashMap;
-use transaction::SignedTransaction;
+use transaction::{SignedTransaction, PendingTransaction};
 use error::TransactionError;
-use util::{U256, H256};
+use bigint::prelude::U256;
+use bigint::hash::H256;
 
 /// Status of local transaction.
 /// Can indicate that the transaction is currently part of the queue (`Pending/Future`)
@@ -40,6 +41,8 @@ pub enum Status {
 	Rejected(SignedTransaction, TransactionError),
 	/// Transaction is invalid.
 	Invalid(SignedTransaction),
+	/// Transaction was canceled.
+	Canceled(PendingTransaction),
 }
 
 impl Status {
@@ -99,6 +102,12 @@ impl LocalTransactionsList {
 		self.clear_old();
 	}
 
+	pub fn mark_canceled(&mut self, tx: PendingTransaction) {
+		warn!(target: "own_tx", "Transaction canceled (hash {:?})", tx.hash());
+		self.transactions.insert(tx.hash(), Status::Canceled(tx));
+		self.clear_old();
+	}
+
 	pub fn mark_dropped(&mut self, tx: SignedTransaction) {
 		warn!(target: "own_tx", "Transaction dropped (hash {:?})", tx.hash());
 		self.transactions.insert(tx.hash(), Status::Dropped(tx));
@@ -144,7 +153,7 @@ impl LocalTransactionsList {
 
 #[cfg(test)]
 mod tests {
-	use util::U256;
+	use bigint::prelude::U256;
 	use ethkey::{Random, Generator};
 	use transaction::{Action, Transaction, SignedTransaction};
 	use super::{LocalTransactionsList, Status};

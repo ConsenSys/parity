@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -27,7 +27,7 @@ use tests::helpers::generate_dummy_client_with_spec_and_data;
 
 use devtools::RandomTempPath;
 use io::IoChannel;
-use util::kvdb::DatabaseConfig;
+use kvdb_rocksdb::{Database, DatabaseConfig};
 
 struct NoopDBRestore;
 
@@ -54,22 +54,22 @@ fn restored_is_equivalent() {
 	path.push("snapshot");
 
 	let db_config = DatabaseConfig::with_columns(::db::NUM_COLUMNS);
+	let client_db = Database::open(&db_config, client_db.to_str().unwrap()).unwrap();
 
 	let spec = Spec::new_null();
 	let client2 = Client::new(
 		Default::default(),
 		&spec,
-		&client_db,
+		Arc::new(client_db),
 		Arc::new(::miner::Miner::with_spec(&spec)),
 		IoChannel::disconnected(),
-		&db_config,
 	).unwrap();
 
 	let service_params = ServiceParams {
 		engine: spec.engine.clone(),
 		genesis_block: spec.genesis_block(),
 		db_config: db_config,
-		pruning: ::util::journaldb::Algorithm::Archive,
+		pruning: ::journaldb::Algorithm::Archive,
 		channel: IoChannel::disconnected(),
 		snapshot_root: path,
 		db_restore: client2.clone(),
@@ -112,7 +112,7 @@ fn guards_delete_folders() {
 		engine: spec.engine.clone(),
 		genesis_block: spec.genesis_block(),
 		db_config: DatabaseConfig::with_columns(::db::NUM_COLUMNS),
-		pruning: ::util::journaldb::Algorithm::Archive,
+		pruning: ::journaldb::Algorithm::Archive,
 		channel: IoChannel::disconnected(),
 		snapshot_root: path.clone(),
 		db_restore: Arc::new(NoopDBRestore),
@@ -122,6 +122,7 @@ fn guards_delete_folders() {
 	path.push("restoration");
 
 	let manifest = ManifestData {
+		version: 2,
 		state_hashes: vec![],
 		block_hashes: vec![],
 		block_number: 0,

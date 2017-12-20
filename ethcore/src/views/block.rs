@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,11 +16,13 @@
 
 //! View onto block rlp.
 
-use util::*;
+use hash::keccak;
+use bigint::hash::H256;
+use bytes::Bytes;
 use header::*;
 use transaction::*;
 use super::{TransactionView, HeaderView};
-use rlp::{Rlp, View};
+use rlp::Rlp;
 
 /// View onto block rlp.
 pub struct BlockView<'a> {
@@ -44,7 +46,7 @@ impl<'a> BlockView<'a> {
 
 	/// Block header hash.
 	pub fn hash(&self) -> H256 {
-		self.sha3()
+		self.header_view().hash()
 	}
 
 	/// Return reference to underlaying rlp.
@@ -69,13 +71,13 @@ impl<'a> BlockView<'a> {
 
 	/// Return List of transactions in given block.
 	pub fn transactions(&self) -> Vec<UnverifiedTransaction> {
-		self.rlp.val_at(1)
+		self.rlp.list_at(1)
 	}
 
 	/// Return List of transactions with additional localization info.
 	pub fn localized_transactions(&self) -> Vec<LocalizedTransaction> {
 		let header = self.header_view();
-		let block_hash = header.sha3();
+		let block_hash = header.hash();
 		let block_number = header.number();
 		self.transactions()
 			.into_iter()
@@ -101,7 +103,7 @@ impl<'a> BlockView<'a> {
 
 	/// Return transaction hashes.
 	pub fn transaction_hashes(&self) -> Vec<H256> {
-		self.rlp.at(1).iter().map(|rlp| rlp.as_raw().sha3()).collect()
+		self.rlp.at(1).iter().map(|rlp| keccak(rlp.as_raw())).collect()
 	}
 
 	/// Returns transaction at given index without deserializing unnecessary data.
@@ -112,7 +114,7 @@ impl<'a> BlockView<'a> {
 	/// Returns localized transaction at given index.
 	pub fn localized_transaction_at(&self, index: usize) -> Option<LocalizedTransaction> {
 		let header = self.header_view();
-		let block_hash = header.sha3();
+		let block_hash = header.hash();
 		let block_number = header.number();
 		self.transaction_at(index).map(|t| LocalizedTransaction {
 			signed: t,
@@ -125,7 +127,7 @@ impl<'a> BlockView<'a> {
 
 	/// Return list of uncles of given block.
 	pub fn uncles(&self) -> Vec<Header> {
-		self.rlp.val_at(2)
+		self.rlp.list_at(2)
 	}
 
 	/// Return number of uncles in given block, without deserializing them.
@@ -140,7 +142,7 @@ impl<'a> BlockView<'a> {
 
 	/// Return list of uncle hashes of given block.
 	pub fn uncle_hashes(&self) -> Vec<H256> {
-		self.rlp.at(2).iter().map(|rlp| rlp.as_raw().sha3()).collect()
+		self.rlp.at(2).iter().map(|rlp| keccak(rlp.as_raw())).collect()
 	}
 
 	/// Return nth uncle.
@@ -154,17 +156,11 @@ impl<'a> BlockView<'a> {
 	}
 }
 
-impl<'a> Hashable for BlockView<'a> {
-	fn sha3(&self) -> H256 {
-		self.header_view().sha3()
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use std::str::FromStr;
-	use rustc_serialize::hex::FromHex;
-	use util::H256;
+	use rustc_hex::FromHex;
+	use bigint::hash::H256;
 	use super::BlockView;
 
 	#[test]

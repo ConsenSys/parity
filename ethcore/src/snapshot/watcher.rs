@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,13 +16,14 @@
 
 //! Watcher for snapshot-related chain events.
 
-use util::Mutex;
+use parking_lot::Mutex;
 use client::{BlockChainClient, Client, ChainNotify};
 use ids::BlockId;
 use service::ClientIoMessage;
 
 use io::IoChannel;
-use util::{H256, Bytes};
+use bigint::hash::H256;
+use bytes::Bytes;
 
 use std::sync::Arc;
 
@@ -133,7 +134,8 @@ mod tests {
 
 	use client::ChainNotify;
 
-	use util::{H256, U256};
+	use bigint::prelude::U256;
+	use bigint::hash::H256;
 
 	use std::collections::HashMap;
 

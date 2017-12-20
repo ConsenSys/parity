@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,27 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-//! A provider for the LES protocol. This is typically a full node, who can
+//! A provider for the PIP protocol. This is typically a full node, who can
 //! give as much data as necessary to its peers.
+
+use std::sync::Arc;
 
 use ethcore::blockchain_info::BlockChainInfo;
 use ethcore::client::{BlockChainClient, ProvingBlockChainClient};
 use ethcore::transaction::PendingTransaction;
 use ethcore::ids::BlockId;
 use ethcore::encoded;
+use bigint::hash::H256;
+use parking_lot::RwLock;
 
-use util::{Bytes, H256};
+use cht::{self, BlockInfo};
+use client::{LightChainClient, AsLightClient};
+use transaction_queue::TransactionQueue;
 
 use request;
 
-/// Defines the operations that a provider for `LES` must fulfill.
-///
-/// These are defined at [1], but may be subject to change.
-/// Requests which can't be fulfilled should return either an empty RLP list
-/// or empty vector where appropriate.
-///
-/// [1]: https://github.com/ethcore/parity/wiki/Light-Ethereum-Subprotocol-(LES)
-#[cfg_attr(feature = "ipc", ipc(client_ident="LightProviderClient"))]
+/// Defines the operations that a provider for the light subprotocol must fulfill.
 pub trait Provider: Send + Sync {
 	/// Provide current blockchain info.
 	fn chain_info(&self) -> BlockChainInfo;
@@ -53,18 +52,18 @@ pub trait Provider: Send + Sync {
 	///
 	/// The returned vector may have any length in the range [0, `max`], but the
 	/// results within must adhere to the `skip` and `reverse` parameters.
-	fn block_headers(&self, req: request::Headers) -> Vec<encoded::Header> {
+	fn block_headers(&self, req: request::CompleteHeadersRequest) -> Option<request::HeadersResponse> {
 		use request::HashOrNumber;
 
-		if req.max == 0 { return Vec::new() }
+		if req.max == 0 { return None }
 
 		let best_num = self.chain_info().best_block_number;
 		let start_num = match req.start {
 			HashOrNumber::Number(start_num) => start_num,
 			HashOrNumber::Hash(hash) => match self.block_header(BlockId::Hash(hash)) {
 				None => {
-					trace!(target: "les_provider", "Unknown block hash {} requested", hash);
-					return Vec::new();
+					trace!(target: "pip_provider", "Unknown block hash {} requested", hash);
+					return None;
 				}
 				Some(header) => {
 					let num = header.number();
@@ -73,7 +72,9 @@ pub trait Provider: Send + Sync {
 
 					if req.max == 1 || canon_hash != Some(hash) {
 						// Non-canonical header or single header requested.
-						return vec![header];
+						return Some(::request::HeadersResponse {
+							headers: vec![header],
+						})
 					}
 
 					num
@@ -81,112 +82,57 @@ pub trait Provider: Send + Sync {
 			}
 		};
 
-		(0u64..req.max as u64)
+		let headers: Vec<_> = (0u64..req.max as u64)
 			.map(|x: u64| x.saturating_mul(req.skip + 1))
 			.take_while(|x| if req.reverse { x < &start_num } else { best_num.saturating_sub(start_num) >= *x })
 			.map(|x| if req.reverse { start_num - x } else { start_num + x })
 			.map(|x| self.block_header(BlockId::Number(x)))
 			.take_while(|x| x.is_some())
 			.flat_map(|x| x)
-			.collect()
+			.collect();
+
+		if headers.is_empty() {
+			None
+		} else {
+			Some(::request::HeadersResponse { headers: headers })
+		}
 	}
 
 	/// Get a block header by id.
 	fn block_header(&self, id: BlockId) -> Option<encoded::Header>;
 
-	/// Provide as many as possible of the requested blocks (minus the headers) encoded
-	/// in RLP format.
-	fn block_bodies(&self, req: request::Bodies) -> Vec<Option<encoded::Body>> {
-		req.block_hashes.into_iter()
-			.map(|hash| self.block_body(BlockId::Hash(hash)))
-			.collect()
-	}
+	/// Get a transaction index by hash.
+	fn transaction_index(&self, req: request::CompleteTransactionIndexRequest)
+		-> Option<request::TransactionIndexResponse>;
 
-	/// Get a block body by id.
-	fn block_body(&self, id: BlockId) -> Option<encoded::Body>;
+	/// Fulfill a block body request.
+	fn block_body(&self, req: request::CompleteBodyRequest) -> Option<request::BodyResponse>;
 
-	/// Provide the receipts as many as possible of the requested blocks.
-	/// Returns a vector of RLP-encoded lists of receipts.
-	fn receipts(&self, req: request::Receipts) -> Vec<Bytes> {
-		req.block_hashes.into_iter()
-			.map(|hash| self.block_receipts(&hash))
-			.map(|receipts| receipts.unwrap_or_else(|| ::rlp::EMPTY_LIST_RLP.to_vec()))
-			.collect()
-	}
+	/// Fulfill a request for block receipts.
+	fn block_receipts(&self, req: request::CompleteReceiptsRequest) -> Option<request::ReceiptsResponse>;
 
-	/// Get a block's receipts as an RLP-encoded list by block hash.
-	fn block_receipts(&self, hash: &H256) -> Option<Bytes>;
+	/// Get an account proof.
+	fn account_proof(&self, req: request::CompleteAccountRequest) -> Option<request::AccountResponse>;
 
-	/// Provide a set of merkle proofs, as requested. Each request is a
-	/// block hash and request parameters.
-	///
-	/// Returns a vector of RLP-encoded lists satisfying the requests.
-	fn proofs(&self, req: request::StateProofs) -> Vec<Bytes> {
-		use rlp::{RlpStream, Stream};
+	/// Get a storage proof.
+	fn storage_proof(&self, req: request::CompleteStorageRequest) -> Option<request::StorageResponse>;
 
-		let mut results = Vec::with_capacity(req.requests.len());
-
-		for request in req.requests {
-			let proof = self.state_proof(request);
-
-			let mut stream = RlpStream::new_list(proof.len());
-			for node in proof {
-				stream.append_raw(&node, 1);
-			}
-
-			results.push(stream.out());
-		}
-
-		results
-	}
-
-	/// Get a state proof from a request. Each proof should be a vector
-	/// of rlp-encoded trie nodes, in ascending order by distance from the root.
-	fn state_proof(&self, req: request::StateProof) -> Vec<Bytes>;
-
-	/// Provide contract code for the specified (block_hash, account_hash) pairs.
-	/// Each item in the resulting vector is either the raw bytecode or empty.
-	fn contract_codes(&self, req: request::ContractCodes) -> Vec<Bytes> {
-		req.code_requests.into_iter()
-			.map(|req| self.contract_code(req))
-			.collect()
-	}
-
-	/// Get contract code by request. Either the raw bytecode or empty.
-	fn contract_code(&self, req: request::ContractCode) -> Bytes;
-
-	/// Provide header proofs from the Canonical Hash Tries as well as the headers
-	/// they correspond to -- each element in the returned vector is a 2-tuple.
-	/// The first element is a block header and the second a merkle proof of
-	/// the header in a requested CHT.
-	fn header_proofs(&self, req: request::HeaderProofs) -> Vec<Bytes> {
-		use rlp::{self, RlpStream, Stream};
-
-		req.requests.into_iter()
-			.map(|req| self.header_proof(req))
-			.map(|maybe_proof| match maybe_proof {
-				None => rlp::EMPTY_LIST_RLP.to_vec(),
-				Some((header, proof)) => {
-					let mut stream = RlpStream::new_list(2);
-					stream.append_raw(&header.into_inner(), 1).begin_list(proof.len());
-
-					for node in proof {
-						stream.append_raw(&node, 1);
-					}
-
-					stream.out()
-				}
-			})
-			.collect()
-	}
+	/// Provide contract code for the specified (block_hash, code_hash) pair.
+	fn contract_code(&self, req: request::CompleteCodeRequest) -> Option<request::CodeResponse>;
 
 	/// Provide a header proof from a given Canonical Hash Trie as well as the
-	/// corresponding header. The first element is the block header and the
-	/// second is a merkle proof of the CHT.
-	fn header_proof(&self, req: request::HeaderProof) -> Option<(encoded::Header, Vec<Bytes>)>;
+	/// corresponding header.
+	fn header_proof(&self, req: request::CompleteHeaderProofRequest) -> Option<request::HeaderProofResponse>;
 
 	/// Provide pending transactions.
 	fn ready_transactions(&self) -> Vec<PendingTransaction>;
+
+	/// Provide a proof-of-execution for the given transaction proof request.
+	/// Returns a vector of all state items necessary to execute the transaction.
+	fn transaction_proof(&self, req: request::CompleteExecutionRequest) -> Option<request::ExecutionResponse>;
+
+	/// Provide epoch signal data at given block hash. This should be just the
+	fn epoch_signal(&self, req: request::CompleteSignalRequest) -> Option<request::SignalResponse>;
 }
 
 // Implementation of a light client data provider for a client.
@@ -207,72 +153,228 @@ impl<T: ProvingBlockChainClient + ?Sized> Provider for T {
 		BlockChainClient::block_header(self, id)
 	}
 
-	fn block_body(&self, id: BlockId) -> Option<encoded::Body> {
-		BlockChainClient::block_body(self, id)
+	fn transaction_index(&self, req: request::CompleteTransactionIndexRequest)
+		-> Option<request::TransactionIndexResponse>
+	{
+		use ethcore::ids::TransactionId;
+
+		self.transaction_receipt(TransactionId::Hash(req.hash)).map(|receipt| request::TransactionIndexResponse {
+			num: receipt.block_number,
+			hash: receipt.block_hash,
+			index: receipt.transaction_index as u64,
+		})
 	}
 
-	fn block_receipts(&self, hash: &H256) -> Option<Bytes> {
-		BlockChainClient::block_receipts(self, hash)
+	fn block_body(&self, req: request::CompleteBodyRequest) -> Option<request::BodyResponse> {
+		BlockChainClient::block_body(self, BlockId::Hash(req.hash))
+			.map(|body| ::request::BodyResponse { body: body })
 	}
 
-	fn state_proof(&self, req: request::StateProof) -> Vec<Bytes> {
-		match req.key2 {
-			Some(key2) => self.prove_storage(req.key1, key2, req.from_level, BlockId::Hash(req.block)),
-			None => self.prove_account(req.key1, req.from_level, BlockId::Hash(req.block)),
-		}
+	fn block_receipts(&self, req: request::CompleteReceiptsRequest) -> Option<request::ReceiptsResponse> {
+		BlockChainClient::block_receipts(self, &req.hash)
+			.map(|x| ::request::ReceiptsResponse { receipts: ::rlp::decode_list(&x) })
 	}
 
-	fn contract_code(&self, req: request::ContractCode) -> Bytes {
-		self.code_by_hash(req.account_key, BlockId::Hash(req.block_hash))
+	fn account_proof(&self, req: request::CompleteAccountRequest) -> Option<request::AccountResponse> {
+		self.prove_account(req.address_hash, BlockId::Hash(req.block_hash)).map(|(proof, acc)| {
+			::request::AccountResponse {
+				proof: proof,
+				nonce: acc.nonce,
+				balance: acc.balance,
+				code_hash: acc.code_hash,
+				storage_root: acc.storage_root,
+			}
+		})
 	}
 
-	fn header_proof(&self, req: request::HeaderProof) -> Option<(encoded::Header, Vec<Bytes>)> {
-		use util::MemoryDB;
-		use util::trie::{Trie, TrieMut, TrieDB, TrieDBMut, Recorder};
+	fn storage_proof(&self, req: request::CompleteStorageRequest) -> Option<request::StorageResponse> {
+		self.prove_storage(req.address_hash, req.key_hash, BlockId::Hash(req.block_hash)).map(|(proof, item) | {
+			::request::StorageResponse {
+				proof: proof,
+				value: item,
+			}
+		})
+	}
 
-		if Some(req.cht_number) != ::cht::block_to_cht_number(req.block_number) {
-			debug!(target: "les_provider", "Requested CHT number mismatch with block number.");
-			return None;
-		}
+	fn contract_code(&self, req: request::CompleteCodeRequest) -> Option<request::CodeResponse> {
+		self.state_data(&req.code_hash)
+			.map(|code| ::request::CodeResponse { code: code })
+	}
 
-		let mut memdb = MemoryDB::new();
-		let mut root = H256::default();
-		let mut needed_hdr = None;
-		{
-			let mut t = TrieDBMut::new(&mut memdb, &mut root);
-			let start_num = ::cht::start_number(req.cht_number);
-			for i in (0..::cht::SIZE).map(|x| x + start_num) {
-				match self.block_header(BlockId::Number(i)) {
-					None => return None,
-					Some(hdr) => {
-						t.insert(
-							&*::rlp::encode(&i),
-							&*::rlp::encode(&hdr.hash()),
-						).expect("fresh in-memory database is infallible; qed");
+	fn header_proof(&self, req: request::CompleteHeaderProofRequest) -> Option<request::HeaderProofResponse> {
+		let cht_number = match cht::block_to_cht_number(req.num) {
+			Some(cht_num) => cht_num,
+			None => {
+				debug!(target: "pip_provider", "Requested CHT proof with invalid block number");
+				return None;
+			}
+		};
 
-						if i == req.block_number { needed_hdr = Some(hdr) }
+		let mut needed = None;
+
+		// build the CHT, caching the requested header as we pass through it.
+		let cht = {
+			let block_info = |id| {
+				let hdr = self.block_header(id);
+				let td = self.block_total_difficulty(id);
+
+				match (hdr, td) {
+					(Some(hdr), Some(td)) => {
+						let info = BlockInfo {
+							hash: hdr.hash(),
+							parent_hash: hdr.parent_hash(),
+							total_difficulty: td,
+						};
+
+						if hdr.number() == req.num {
+							needed = Some((hdr, td));
+						}
+
+						Some(info)
 					}
+					_ => None,
 				}
+			};
+
+			match cht::build(cht_number, block_info) {
+				Some(cht) => cht,
+				None => return None, // incomplete CHT.
+			}
+		};
+
+		let (needed_hdr, needed_td) = needed.expect("`needed` always set in loop, number checked before; qed");
+
+		// prove our result.
+		match cht.prove(req.num, 0) {
+			Ok(Some(proof)) => Some(::request::HeaderProofResponse {
+				proof: proof,
+				hash: needed_hdr.hash(),
+				td: needed_td,
+			}),
+			Ok(None) => None,
+			Err(e) => {
+				debug!(target: "pip_provider", "Error looking up number in freshly-created CHT: {}", e);
+				None
 			}
 		}
-		let needed_hdr = needed_hdr.expect("`needed_hdr` always set in loop, number checked before; qed");
+	}
 
-		let mut recorder = Recorder::with_depth(req.from_level);
-		let t = TrieDB::new(&memdb, &root)
-			.expect("Same DB and root as just produced by TrieDBMut; qed");
+	fn transaction_proof(&self, req: request::CompleteExecutionRequest) -> Option<request::ExecutionResponse> {
+		use ethcore::transaction::Transaction;
 
-		if let Err(e) = t.get_with(&*::rlp::encode(&req.block_number), &mut recorder) {
-			debug!(target: "les_provider", "Error looking up number in freshly-created CHT: {}", e);
-			return None;
-		}
+		let id = BlockId::Hash(req.block_hash);
+		let nonce = match self.nonce(&req.from, id.clone()) {
+			Some(nonce) => nonce,
+			None => return None,
+		};
+		let transaction = Transaction {
+			nonce: nonce,
+			gas: req.gas,
+			gas_price: req.gas_price,
+			action: req.action,
+			value: req.value,
+			data: req.data,
+		}.fake_sign(req.from);
 
-		// TODO: cache calculated CHT if possible.
-		let proof = recorder.drain().into_iter().map(|x| x.data).collect();
-		Some((needed_hdr, proof))
+		self.prove_transaction(transaction, id)
+			.map(|(_, proof)| ::request::ExecutionResponse { items: proof })
 	}
 
 	fn ready_transactions(&self) -> Vec<PendingTransaction> {
 		BlockChainClient::ready_transactions(self)
+	}
+
+	fn epoch_signal(&self, req: request::CompleteSignalRequest) -> Option<request::SignalResponse> {
+		self.epoch_signal(req.block_hash).map(|signal| request::SignalResponse {
+			signal: signal,
+		})
+	}
+}
+
+/// The light client "provider" implementation. This wraps a `LightClient` and
+/// a light transaction queue.
+pub struct LightProvider<L> {
+	client: Arc<L>,
+	txqueue: Arc<RwLock<TransactionQueue>>,
+}
+
+impl<L> LightProvider<L> {
+	/// Create a new `LightProvider` from the given client and transaction queue.
+	pub fn new(client: Arc<L>, txqueue: Arc<RwLock<TransactionQueue>>) -> Self {
+		LightProvider {
+			client: client,
+			txqueue: txqueue,
+		}
+	}
+}
+
+// TODO: draw from cache (shared between this and the RPC layer)
+impl<L: AsLightClient + Send + Sync> Provider for LightProvider<L> {
+	fn chain_info(&self) -> BlockChainInfo {
+		self.client.as_light_client().chain_info()
+	}
+
+	fn reorg_depth(&self, _a: &H256, _b: &H256) -> Option<u64> {
+		None
+	}
+
+	fn earliest_state(&self) -> Option<u64> {
+		None
+	}
+
+	fn block_header(&self, id: BlockId) -> Option<encoded::Header> {
+		self.client.as_light_client().block_header(id)
+	}
+
+	fn transaction_index(&self, _req: request::CompleteTransactionIndexRequest)
+		-> Option<request::TransactionIndexResponse>
+	{
+		None
+	}
+
+	fn block_body(&self, _req: request::CompleteBodyRequest) -> Option<request::BodyResponse> {
+		None
+	}
+
+	fn block_receipts(&self, _req: request::CompleteReceiptsRequest) -> Option<request::ReceiptsResponse> {
+		None
+	}
+
+	fn account_proof(&self, _req: request::CompleteAccountRequest) -> Option<request::AccountResponse> {
+		None
+	}
+
+	fn storage_proof(&self, _req: request::CompleteStorageRequest) -> Option<request::StorageResponse> {
+		None
+	}
+
+	fn contract_code(&self, _req: request::CompleteCodeRequest) -> Option<request::CodeResponse> {
+		None
+	}
+
+	fn header_proof(&self, _req: request::CompleteHeaderProofRequest) -> Option<request::HeaderProofResponse> {
+		None
+	}
+
+	fn transaction_proof(&self, _req: request::CompleteExecutionRequest) -> Option<request::ExecutionResponse> {
+		None
+	}
+
+	fn epoch_signal(&self, _req: request::CompleteSignalRequest) -> Option<request::SignalResponse> {
+		None
+	}
+
+	fn ready_transactions(&self) -> Vec<PendingTransaction> {
+		let chain_info = self.chain_info();
+		self.txqueue.read().ready_transactions(chain_info.best_block_number, chain_info.best_block_timestamp)
+	}
+}
+
+impl<L: AsLightClient> AsLightClient for LightProvider<L> {
+	type Client = L::Client;
+
+	fn as_light_client(&self) -> &L::Client {
+		self.client.as_light_client()
 	}
 }
 
@@ -286,10 +388,8 @@ mod tests {
 		let client = TestBlockChainClient::new();
 		client.add_blocks(2000, EachBlockWith::Nothing);
 
-		let req = ::request::HeaderProof {
-			cht_number: 0,
-			block_number: 1500,
-			from_level: 0,
+		let req = ::request::CompleteHeaderProofRequest {
+			num: 1500,
 		};
 
 		assert!(client.header_proof(req.clone()).is_none());

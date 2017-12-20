@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,8 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::*;
-use network::*;
+use std::collections::{VecDeque, HashSet, HashMap};
+use std::sync::Arc;
+use bigint::hash::H256;
+use parking_lot::RwLock;
+use bytes::Bytes;
+use network::{self, PeerId, ProtocolId, PacketId, SessionInfo};
 use tests::snapshot::*;
 use ethcore::client::{TestBlockChainClient, BlockChainClient, Client as EthcoreClient, ClientConfig, ChainNotify};
 use ethcore::header::BlockNumber;
@@ -23,13 +27,11 @@ use ethcore::snapshot::SnapshotService;
 use ethcore::spec::Spec;
 use ethcore::account_provider::AccountProvider;
 use ethcore::miner::Miner;
-use ethcore::db::NUM_COLUMNS;
 use sync_io::SyncIo;
 use io::IoChannel;
 use api::WARP_SYNC_PROTOCOL_ID;
 use chain::ChainSync;
 use ::SyncConfig;
-use devtools::{self, GuardedTempResult};
 
 pub trait FlushingBlockChainClient: BlockChainClient {
 	fn flush(&self) {}
@@ -88,7 +90,7 @@ impl<'p, C> SyncIo for TestIo<'p, C> where C: FlushingBlockChainClient, C: 'p {
 		false
 	}
 
-	fn respond(&mut self, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	fn respond(&mut self, packet_id: PacketId, data: Vec<u8>) -> Result<(), network::Error> {
 		self.packets.push(TestPacket {
 			data: data,
 			packet_id: packet_id,
@@ -97,7 +99,7 @@ impl<'p, C> SyncIo for TestIo<'p, C> where C: FlushingBlockChainClient, C: 'p {
 		Ok(())
 	}
 
-	fn send(&mut self, peer_id: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	fn send(&mut self, peer_id: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), network::Error> {
 		self.packets.push(TestPacket {
 			data: data,
 			packet_id: packet_id,
@@ -106,7 +108,7 @@ impl<'p, C> SyncIo for TestIo<'p, C> where C: FlushingBlockChainClient, C: 'p {
 		Ok(())
 	}
 
-	fn send_protocol(&mut self, _protocol: ProtocolId, peer_id: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	fn send_protocol(&mut self, _protocol: ProtocolId, peer_id: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), network::Error> {
 		self.send(peer_id, packet_id, data)
 	}
 
@@ -271,7 +273,7 @@ impl TestNet<EthPeer<TestBlockChainClient>> {
 }
 
 impl TestNet<EthPeer<EthcoreClient>> {
-	pub fn with_spec_and_accounts<F>(n: usize, config: SyncConfig, spec_factory: F, accounts: Option<Arc<AccountProvider>>) -> GuardedTempResult<Self>
+	pub fn with_spec_and_accounts<F>(n: usize, config: SyncConfig, spec_factory: F, accounts: Option<Arc<AccountProvider>>) -> Self
 		where F: Fn() -> Spec
 	{
 		let mut net = TestNet {
@@ -279,38 +281,31 @@ impl TestNet<EthPeer<EthcoreClient>> {
 			started: false,
 			disconnect_events: Vec::new(),
 		};
-		let dir = devtools::RandomTempPath::new();
 		for _ in 0..n {
-			let mut client_dir = dir.as_path().clone();
-			client_dir.push(devtools::random_filename());
-
-			let db_config = DatabaseConfig::with_columns(NUM_COLUMNS);
-
-			let spec = spec_factory();
-			let client = EthcoreClient::new(
-				ClientConfig::default(),
-				&spec,
-				client_dir.as_path(),
-				Arc::new(Miner::with_spec_and_accounts(&spec, accounts.clone())),
-				IoChannel::disconnected(),
-				&db_config
-			).unwrap();
-
-			let ss = Arc::new(TestSnapshotService::new());
-			let sync = ChainSync::new(config.clone(), &*client);
-			let peer = Arc::new(EthPeer {
-				sync: RwLock::new(sync),
-				snapshot_service: ss,
-				chain: client,
-				queue: RwLock::new(VecDeque::new()),
-			});
-			peer.chain.add_notify(peer.clone());
-			net.peers.push(peer);
+			net.add_peer(config.clone(), spec_factory(), accounts.clone());
 		}
-		GuardedTempResult {
-			_temp: dir,
-			result: Some(net)
-		}
+		net
+	}
+
+	pub fn add_peer(&mut self, config: SyncConfig, spec: Spec, accounts: Option<Arc<AccountProvider>>) {
+		let client = EthcoreClient::new(
+			ClientConfig::default(),
+			&spec,
+			Arc::new(::kvdb_memorydb::create(::ethcore::db::NUM_COLUMNS.unwrap_or(0))),
+			Arc::new(Miner::with_spec_and_accounts(&spec, accounts)),
+			IoChannel::disconnected(),
+		).unwrap();
+
+		let ss = Arc::new(TestSnapshotService::new());
+		let sync = ChainSync::new(config, &*client);
+		let peer = Arc::new(EthPeer {
+			sync: RwLock::new(sync),
+			snapshot_service: ss,
+			chain: client,
+			queue: RwLock::new(VecDeque::new()),
+		});
+		peer.chain.add_notify(peer.clone());
+		self.peers.push(peer);
 	}
 }
 

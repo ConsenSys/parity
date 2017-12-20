@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -22,26 +22,26 @@ use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering as AtomicOrdering};
 use std::ops::*;
 use std::cmp::min;
 use std::path::{Path, PathBuf};
-use std::io::{Read, Write, ErrorKind};
+use std::io::{Read, Write, self};
 use std::fs;
 use ethkey::{KeyPair, Secret, Random, Generator};
+use hash::keccak;
 use mio::*;
 use mio::deprecated::{EventLoop};
 use mio::tcp::*;
-use util::hash::*;
-use util::Hashable;
-use util::version;
+use bigint::hash::*;
 use rlp::*;
 use session::{Session, SessionInfo, SessionData};
-use error::*;
 use io::*;
-use {NetworkProtocolHandler, NonReservedPeerMode, AllowIP, PROTOCOL_VERSION};
+use {NetworkProtocolHandler, NonReservedPeerMode, PROTOCOL_VERSION, IpFilter};
 use node_table::*;
 use stats::NetworkStats;
 use discovery::{Discovery, TableUpdates, NodeEntry};
 use ip_utils::{map_external_address, select_public_address};
-use util::path::restrict_permissions_owner;
+use path::restrict_permissions_owner;
 use parking_lot::{Mutex, RwLock};
+use connection_filter::{ConnectionFilter, ConnectionDirection};
+use error::{Error, ErrorKind, DisconnectReason};
 
 type Slab<T> = ::slab::Slab<T, usize>;
 
@@ -50,22 +50,26 @@ const MAX_HANDSHAKES: usize = 1024;
 
 const DEFAULT_PORT: u16 = 30303;
 
-// Tokens
-const TCP_ACCEPT: usize = SYS_TIMER + 1;
-const IDLE: usize = SYS_TIMER + 2;
-const DISCOVERY: usize = SYS_TIMER + 3;
-const DISCOVERY_REFRESH: usize = SYS_TIMER + 4;
-const DISCOVERY_ROUND: usize = SYS_TIMER + 5;
-const NODE_TABLE: usize = SYS_TIMER + 6;
-const FIRST_SESSION: usize = 0;
-const LAST_SESSION: usize = FIRST_SESSION + MAX_SESSIONS - 1;
-const USER_TIMER: usize = LAST_SESSION + 256;
-const SYS_TIMER: usize = LAST_SESSION + 1;
+// StreamToken/TimerToken
+const TCP_ACCEPT: StreamToken = SYS_TIMER + 1;
+const IDLE: TimerToken = SYS_TIMER + 2;
+const DISCOVERY: StreamToken = SYS_TIMER + 3;
+const DISCOVERY_REFRESH: TimerToken = SYS_TIMER + 4;
+const DISCOVERY_ROUND: TimerToken = SYS_TIMER + 5;
+const NODE_TABLE: TimerToken = SYS_TIMER + 6;
+const FIRST_SESSION: StreamToken = 0;
+const LAST_SESSION: StreamToken = FIRST_SESSION + MAX_SESSIONS - 1;
+const USER_TIMER: TimerToken = LAST_SESSION + 256;
+const SYS_TIMER: TimerToken = LAST_SESSION + 1;
 
 // Timeouts
+// for IDLE TimerToken
 const MAINTENANCE_TIMEOUT: u64 = 1000;
+// for DISCOVERY_REFRESH TimerToken
 const DISCOVERY_REFRESH_TIMEOUT: u64 = 60_000;
+// for DISCOVERY_ROUND TimerToken
 const DISCOVERY_ROUND_TIMEOUT: u64 = 300;
+// for NODE_TABLE TimerToken
 const NODE_TABLE_TIMEOUT: u64 = 300_000;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -102,7 +106,9 @@ pub struct NetworkConfiguration {
 	/// The non-reserved peer mode.
 	pub non_reserved_mode: NonReservedPeerMode,
 	/// IP filter
-	pub allow_ips: AllowIP,
+	pub ip_filter: IpFilter,
+	/// Client identifier
+	pub client_version: String,
 }
 
 impl Default for NetworkConfiguration {
@@ -128,9 +134,10 @@ impl NetworkConfiguration {
 			max_peers: 50,
 			max_handshakes: 64,
 			reserved_protocols: HashMap::new(),
-			allow_ips: AllowIP::All,
+			ip_filter: IpFilter::default(),
 			reserved_nodes: Vec::new(),
 			non_reserved_mode: NonReservedPeerMode::Accept,
+			client_version: "Parity-network".into(),
 		}
 	}
 
@@ -243,15 +250,15 @@ impl<'s> NetworkContext<'s> {
 	}
 
 	/// Send a packet over the network to another peer.
-	pub fn send(&self, peer: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	pub fn send(&self, peer: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), Error> {
 		self.send_protocol(self.protocol, peer, packet_id, data)
 	}
 
 	/// Send a packet over the network to another peer using specified protocol.
-	pub fn send_protocol(&self, protocol: ProtocolId, peer: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	pub fn send_protocol(&self, protocol: ProtocolId, peer: PeerId, packet_id: PacketId, data: Vec<u8>) -> Result<(), Error> {
 		let session = self.resolve_session(peer);
 		if let Some(session) = session {
-			session.lock().send_packet(self.io, protocol, packet_id as u8, &data)?;
+			session.lock().send_packet(self.io, Some(protocol), packet_id as u8, &data)?;
 		} else  {
 			trace!(target: "network", "Send: Peer no longer exist")
 		}
@@ -259,9 +266,9 @@ impl<'s> NetworkContext<'s> {
 	}
 
 	/// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
-	pub fn respond(&self, packet_id: PacketId, data: Vec<u8>) -> Result<(), NetworkError> {
+	pub fn respond(&self, packet_id: PacketId, data: Vec<u8>) -> Result<(), Error> {
 		assert!(self.session.is_some(), "Respond called without network context");
-		self.session_id.map_or_else(|| Err(NetworkError::Expired), |id| self.send(id, packet_id, data))
+		self.session_id.map_or_else(|| Err(ErrorKind::Expired.into()), |id| self.send(id, packet_id, data))
 	}
 
 	/// Get an IoChannel.
@@ -287,7 +294,7 @@ impl<'s> NetworkContext<'s> {
 	}
 
 	/// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
-	pub fn register_timer(&self, token: TimerToken, ms: u64) -> Result<(), NetworkError> {
+	pub fn register_timer(&self, token: TimerToken, ms: u64) -> Result<(), Error> {
 		self.io.message(NetworkIoMessage::AddTimer {
 			token: token,
 			delay: ms,
@@ -326,8 +333,6 @@ pub struct HostInfo {
 	nonce: H256,
 	/// RLPx protocol version
 	pub protocol_version: u32,
-	/// Client identifier
-	pub client_version: String,
 	/// Registered capabilities (handlers)
 	pub capabilities: Vec<CapabilityInfo>,
 	/// Local address + discovery port
@@ -349,8 +354,12 @@ impl HostInfo {
 
 	/// Increments and returns connection nonce.
 	pub fn next_nonce(&mut self) -> H256 {
-		self.nonce = self.nonce.sha3();
-		self.nonce.clone()
+		self.nonce = keccak(&self.nonce);
+		self.nonce
+	}
+
+	pub fn client_version(&self) -> &str {
+		&self.config.client_version
 	}
 }
 
@@ -376,11 +385,12 @@ pub struct Host {
 	reserved_nodes: RwLock<HashSet<NodeId>>,
 	num_sessions: AtomicUsize,
 	stopping: AtomicBool,
+	filter: Option<Arc<ConnectionFilter>>,
 }
 
 impl Host {
 	/// Create a new instance
-	pub fn new(mut config: NetworkConfiguration, stats: Arc<NetworkStats>) -> Result<Host, NetworkError> {
+	pub fn new(mut config: NetworkConfiguration, stats: Arc<NetworkStats>, filter: Option<Arc<ConnectionFilter>>) -> Result<Host, Error> {
 		let mut listen_address = match config.listen_address {
 			None => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), DEFAULT_PORT)),
 			Some(addr) => addr,
@@ -417,7 +427,6 @@ impl Host {
 				config: config,
 				nonce: H256::random(),
 				protocol_version: PROTOCOL_VERSION,
-				client_version: version(),
 				capabilities: Vec::new(),
 				public_endpoint: None,
 				local_endpoint: local_endpoint,
@@ -433,6 +442,7 @@ impl Host {
 			reserved_nodes: RwLock::new(HashSet::new()),
 			num_sessions: AtomicUsize::new(0),
 			stopping: AtomicBool::new(false),
+			filter: filter,
 		};
 
 		for n in boot_nodes {
@@ -461,7 +471,7 @@ impl Host {
 		}
 	}
 
-	pub fn add_reserved_node(&self, id: &str) -> Result<(), NetworkError> {
+	pub fn add_reserved_node(&self, id: &str) -> Result<(), Error> {
 		let n = Node::from_str(id)?;
 
 		let entry = NodeEntry { endpoint: n.endpoint.clone(), id: n.id.clone() };
@@ -505,28 +515,24 @@ impl Host {
 		}
 	}
 
-	pub fn remove_reserved_node(&self, id: &str) -> Result<(), NetworkError> {
+	pub fn remove_reserved_node(&self, id: &str) -> Result<(), Error> {
 		let n = Node::from_str(id)?;
 		self.reserved_nodes.write().remove(&n.id);
 
 		Ok(())
 	}
 
-	pub fn client_version() -> String {
-		version()
-	}
-
 	pub fn external_url(&self) -> Option<String> {
-		self.info.read().public_endpoint.as_ref().map(|e| format!("{}", Node::new(self.info.read().id().clone(), e.clone())))
+		let info = self.info.read();
+		info.public_endpoint.as_ref().map(|e| format!("{}", Node::new(info.id().clone(), e.clone())))
 	}
 
 	pub fn local_url(&self) -> String {
-		let r = format!("{}", Node::new(self.info.read().id().clone(), self.info.read().local_endpoint.clone()));
-		println!("{}", r);
-		r
+		let info = self.info.read();
+		format!("{}", Node::new(info.id().clone(), info.local_endpoint.clone()))
 	}
 
-	pub fn stop(&self, io: &IoContext<NetworkIoMessage>) -> Result<(), NetworkError> {
+	pub fn stop(&self, io: &IoContext<NetworkIoMessage>) -> Result<(), Error> {
 		self.stopping.store(true, AtomicOrdering::Release);
 		let mut to_kill = Vec::new();
 		for e in self.sessions.write().iter_mut() {
@@ -556,13 +562,13 @@ impl Host {
 		peers
 	}
 
-	fn init_public_interface(&self, io: &IoContext<NetworkIoMessage>) -> Result<(), NetworkError> {
+	fn init_public_interface(&self, io: &IoContext<NetworkIoMessage>) -> Result<(), Error> {
 		if self.info.read().public_endpoint.is_some() {
 			return Ok(());
 		}
 		let local_endpoint = self.info.read().local_endpoint.clone();
 		let public_address = self.info.read().config.public_address.clone();
-		let allow_ips = self.info.read().config.allow_ips;
+		let allow_ips = self.info.read().config.ip_filter.clone();
 		let public_endpoint = match public_address {
 			None => {
 				let public_address = select_public_address(local_endpoint.address.port());
@@ -656,7 +662,7 @@ impl Host {
 			}
 			let config = &info.config;
 
-			(config.min_peers, config.non_reserved_mode == NonReservedPeerMode::Deny, config.max_handshakes as usize, config.allow_ips, info.id().clone())
+			(config.min_peers, config.non_reserved_mode == NonReservedPeerMode::Deny, config.max_handshakes as usize, config.ip_filter.clone(), info.id().clone())
 		};
 
 		let session_count = self.session_count();
@@ -687,8 +693,12 @@ impl Host {
 
 		let max_handshakes_per_round = max_handshakes / 2;
 		let mut started: usize = 0;
-		for id in nodes.filter(|id| !self.have_session(id) && !self.connecting_to(id) && *id != self_id)
-			.take(min(max_handshakes_per_round, max_handshakes - handshake_count)) {
+		for id in nodes.filter(|id|
+				!self.have_session(id) &&
+				!self.connecting_to(id) &&
+				*id != self_id &&
+				self.filter.as_ref().map_or(true, |f| f.connection_allowed(&self_id, &id, ConnectionDirection::Outbound))
+			).take(min(max_handshakes_per_round, max_handshakes - handshake_count)) {
 			self.connect_peer(&id, io);
 			started += 1;
 		}
@@ -735,7 +745,7 @@ impl Host {
 	}
 
 	#[cfg_attr(feature="dev", allow(block_in_if_condition_stmt))]
-	fn create_connection(&self, socket: TcpStream, id: Option<&NodeId>, io: &IoContext<NetworkIoMessage>) -> Result<(), NetworkError> {
+	fn create_connection(&self, socket: TcpStream, id: Option<&NodeId>, io: &IoContext<NetworkIoMessage>) -> Result<(), Error> {
 		let nonce = self.info.write().next_nonce();
 		let mut sessions = self.sessions.write();
 
@@ -764,7 +774,7 @@ impl Host {
 			let socket = match self.tcp_listener.lock().accept() {
 				Ok((sock, _addr)) => sock,
 				Err(e) => {
-					if e.kind() != ErrorKind::WouldBlock {
+					if e.kind() != io::ErrorKind::WouldBlock {
 						debug!(target: "network", "Error accepting connection: {:?}", e);
 					}
 					break
@@ -810,7 +820,7 @@ impl Host {
 					match session_result {
 						Err(e) => {
 							trace!(target: "network", "Session read error: {}:{:?} ({:?}) {:?}", token, s.id(), s.remote_addr(), e);
-							if let NetworkError::Disconnect(DisconnectReason::IncompatibleProtocol) = e {
+							if let ErrorKind::Disconnect(DisconnectReason::IncompatibleProtocol) = *e.kind() {
 								if let Some(id) = s.id() {
 									if !self.reserved_nodes.read().contains(id) {
 										self.nodes.write().mark_as_useless(id);
@@ -823,7 +833,7 @@ impl Host {
 						Ok(SessionData::Ready) => {
 							self.num_sessions.fetch_add(1, AtomicOrdering::SeqCst);
 							let session_count = self.session_count();
-							let (min_peers, max_peers, reserved_only) = {
+							let (min_peers, max_peers, reserved_only, self_id) = {
 								let info = self.info.read();
 								let mut max_peers = info.config.max_peers;
 								for cap in s.info.capabilities.iter() {
@@ -832,7 +842,7 @@ impl Host {
 										break;
 									}
 								}
-								(info.config.min_peers as usize, max_peers as usize, info.config.non_reserved_mode == NonReservedPeerMode::Deny)
+								(info.config.min_peers as usize, max_peers as usize, info.config.non_reserved_mode == NonReservedPeerMode::Deny, info.id().clone())
 							};
 
 							let id = s.id().expect("Ready session always has id").clone();
@@ -844,19 +854,33 @@ impl Host {
 								// only proceed if the connecting peer is reserved.
 								if !self.reserved_nodes.read().contains(&id) {
 									s.disconnect(io, DisconnectReason::TooManyPeers);
-									return;
+									kill = true;
+									break;
 								}
 							}
+
+							if !self.filter.as_ref().map_or(true, |f| f.connection_allowed(&self_id, &id, ConnectionDirection::Inbound)) {
+								trace!(target: "network", "Inbound connection not allowed for {:?}", id);
+								s.disconnect(io, DisconnectReason::UnexpectedIdentity);
+								kill = true;
+								break;
+							}
+
 							ready_id = Some(id);
 
 							// Add it to the node table
 							if !s.info.originated {
 								if let Ok(address) = s.remote_addr() {
-									let entry = NodeEntry { id: id, endpoint: NodeEndpoint { address: address, udp_port: address.port() } };
-									self.nodes.write().add_node(Node::new(entry.id.clone(), entry.endpoint.clone()));
-									let mut discovery = self.discovery.lock();
-									if let Some(ref mut discovery) = *discovery {
-										discovery.add_node(entry);
+									// We can't know remote listening ports, so just assume defaults and hope for the best.
+									let endpoint = NodeEndpoint { address: SocketAddr::new(address.ip(), DEFAULT_PORT), udp_port: DEFAULT_PORT };
+									let entry = NodeEntry { id: id, endpoint: endpoint };
+									let mut nodes = self.nodes.write();
+									if !nodes.contains(&entry.id) {
+										nodes.add_node(Node::new(entry.id.clone(), entry.endpoint.clone()));
+										let mut discovery = self.discovery.lock();
+										if let Some(ref mut discovery) = *discovery {
+											discovery.add_node(entry);
+										}
 									}
 								}
 							}
@@ -895,6 +919,7 @@ impl Host {
 				if duplicate {
 					trace!(target: "network", "Rejected duplicate connection: {}", token);
 					session.lock().disconnect(io, DisconnectReason::DuplicatePeer);
+					self.kill_connection(token, io, false);
 					return;
 				}
 				for p in ready_data {
@@ -912,7 +937,7 @@ impl Host {
 			for (p, packet_id, data) in packet_data {
 				let reserved = self.reserved_nodes.read();
 				if let Some(h) = handlers.get(&p).clone() {
-					h.read(&NetworkContext::new(io, p, Some(session.clone()), self.sessions.clone(), &reserved), &token, packet_id, &data[1..]);
+					h.read(&NetworkContext::new(io, p, Some(session.clone()), self.sessions.clone(), &reserved), &token, packet_id, &data);
 				}
 			}
 		}
@@ -983,14 +1008,14 @@ impl Host {
 		self.nodes.write().update(node_changes, &*self.reserved_nodes.read());
 	}
 
-	pub fn with_context<F>(&self, protocol: ProtocolId, io: &IoContext<NetworkIoMessage>, action: F) where F: Fn(&NetworkContext) {
+	pub fn with_context<F>(&self, protocol: ProtocolId, io: &IoContext<NetworkIoMessage>, action: F) where F: FnOnce(&NetworkContext) {
 		let reserved = { self.reserved_nodes.read() };
 
 		let context = NetworkContext::new(io, protocol, None, self.sessions.clone(), &reserved);
 		action(&context);
 	}
 
-	pub fn with_context_eval<F, T>(&self, protocol: ProtocolId, io: &IoContext<NetworkIoMessage>, action: F) -> T where F: Fn(&NetworkContext) -> T {
+	pub fn with_context_eval<F, T>(&self, protocol: ProtocolId, io: &IoContext<NetworkIoMessage>, action: F) -> T where F: FnOnce(&NetworkContext) -> T {
 		let reserved = { self.reserved_nodes.read() };
 
 		let context = NetworkContext::new(io, protocol, None, self.sessions.clone(), &reserved);
@@ -1093,7 +1118,10 @@ impl IoHandler<NetworkIoMessage> for Host {
 			} => {
 				let h = handler.clone();
 				let reserved = self.reserved_nodes.read();
-				h.initialize(&NetworkContext::new(io, *protocol, None, self.sessions.clone(), &reserved));
+				h.initialize(
+					&NetworkContext::new(io, *protocol, None, self.sessions.clone(), &reserved),
+					&*self.info.read(),
+				);
 				self.handlers.write().insert(*protocol, h);
 				let mut info = self.info.write();
 				for v in versions {
@@ -1159,8 +1187,11 @@ impl IoHandler<NetworkIoMessage> for Host {
 			FIRST_SESSION ... LAST_SESSION => {
 				let mut connections = self.sessions.write();
 				if let Some(connection) = connections.get(stream).cloned() {
-					connection.lock().deregister_socket(event_loop).expect("Error deregistering socket");
-					connections.remove(stream);
+					let c = connection.lock();
+					if c.expired() { // make sure it is the same connection that the event was generated for
+						c.deregister_socket(event_loop).expect("Error deregistering socket");
+						connections.remove(stream);
+					}
 				}
 			}
 			DISCOVERY => (),
@@ -1235,11 +1266,12 @@ fn load_key(path: &Path) -> Option<Secret> {
 
 #[test]
 fn key_save_load() {
-	use ::devtools::RandomTempPath;
-	let temp_path = RandomTempPath::create_dir();
-	let key = Secret::from_slice(&H256::random()).unwrap();
-	save_key(temp_path.as_path(), &key);
-	let r = load_key(temp_path.as_path());
+	use tempdir::TempDir;
+
+	let tempdir = TempDir::new("").unwrap();
+	let key = H256::random().into();
+	save_key(tempdir.path(), &key);
+	let r = load_key(tempdir.path());
 	assert_eq!(key, r.unwrap());
 }
 
@@ -1249,7 +1281,7 @@ fn host_client_url() {
 	let mut config = NetworkConfiguration::new_local();
 	let key = "6f7b0d801bc7b5ce7bbd930b84fd0369b3eb25d09be58d64ba811091046f3aa2".parse().unwrap();
 	config.use_secret = Some(key);
-	let host: Host = Host::new(config, Arc::new(NetworkStats::new())).unwrap();
+	let host: Host = Host::new(config, Arc::new(NetworkStats::new()), None).unwrap();
 	assert!(host.local_url().starts_with("enode://101b3ef5a4ea7a1c7928e24c4c75fd053c235d7b80c22ae5c03d145d0ac7396e2a4ffff9adee3133a7b05044a5cee08115fd65145e5165d646bde371010d803c@"));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -62,7 +62,7 @@
 //!   export LIBRARY_PATH=/usr/local/lib
 //!
 //!   # download and build parity
-//!   git clone https://github.com/ethcore/parity
+//!   git clone https://github.com/paritytech/parity
 //!   cd parity
 //!   cargo build --release
 //!   ```
@@ -82,85 +82,40 @@
 //!   export LIBRARY_PATH=/usr/local/lib
 //!
 //!   # download and build parity
-//!   git clone https://github.com/ethcore/parity
+//!   git clone https://github.com/paritytech/parity
 //!   cd parity
 //!   cargo build --release
 //!   ```
 
-extern crate rustc_serialize;
-extern crate rand;
-extern crate rocksdb;
+extern crate rustc_hex;
 extern crate env_logger;
-extern crate crypto as rcrypto;
 extern crate secp256k1;
-extern crate arrayvec;
 extern crate elastic_array;
-extern crate time;
-extern crate ethcore_devtools as devtools;
 extern crate libc;
 extern crate target_info;
 extern crate ethcore_bigint as bigint;
+extern crate ethcore_bytes as bytes;
 extern crate parking_lot;
-extern crate ansi_term;
 extern crate tiny_keccak;
 extern crate rlp;
-extern crate regex;
-extern crate lru_cache;
-
-#[macro_use]
 extern crate heapsize;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate itertools;
-#[macro_use]
-extern crate log as rlog;
+extern crate ethcore_logger;
+extern crate keccak_hash as keccak;
+extern crate hashdb;
+extern crate memorydb;
+extern crate patricia_trie as trie;
+extern crate kvdb;
+extern crate util_error as error;
 
-pub extern crate using_queue;
-pub extern crate table;
+#[cfg(test)]
+extern crate kvdb_memorydb;
 
-pub mod bloom;
-pub mod standard;
-#[macro_use]
-pub mod from_json;
-#[macro_use]
-pub mod common;
-pub mod error;
-pub mod bytes;
+
 pub mod misc;
-pub mod vector;
-pub mod sha3;
-pub mod hashdb;
-pub mod memorydb;
-pub mod migration;
-pub mod overlaydb;
-pub mod journaldb;
-pub mod kvdb;
-pub mod triehash;
-pub mod trie;
-pub mod nibbleslice;
-pub mod nibblevec;
-pub mod semantic_version;
-pub mod log;
-pub mod path;
-pub mod snappy;
-pub mod stats;
-pub mod cache;
-mod timer;
 
-pub use common::*;
 pub use misc::*;
 pub use hashdb::*;
 pub use memorydb::MemoryDB;
-pub use overlaydb::*;
-pub use journaldb::JournalDB;
-pub use triehash::*;
-pub use trie::{Trie, TrieMut, TrieDB, TrieDBMut, TrieFactory, TrieError, SecTrieDB, SecTrieDBMut};
-pub use nibbleslice::*;
-pub use semantic_version::*;
-pub use log::*;
-pub use kvdb::*;
-pub use timer::*;
 
 /// 160-bit integer representing account address
-pub type Address = H160;
+pub type Address = bigint::hash::H160;

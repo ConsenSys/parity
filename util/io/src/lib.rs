@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -54,6 +54,9 @@
 //! }
 //! ```
 
+//TODO: use Poll from mio
+#![allow(deprecated)]
+
 extern crate mio;
 #[macro_use]
 extern crate log as rlog;
@@ -63,11 +66,10 @@ extern crate parking_lot;
 
 mod service;
 mod worker;
-mod panics;
 
-use mio::{Token};
+use std::{fmt, error};
 use mio::deprecated::{EventLoop, NotifyError};
-use std::fmt;
+use mio::Token;
 
 pub use worker::LOCAL_STACK_SIZE;
 
@@ -88,6 +90,12 @@ impl fmt::Display for IoError {
 			IoError::Mio(ref std_err) => std_err.fmt(f),
 			IoError::StdIo(ref std_err) => std_err.fmt(f),
 		}
+	}
+}
+
+impl error::Error for IoError {
+	fn description(&self) -> &str {
+		"IO error"
 	}
 }
 
@@ -134,7 +142,6 @@ pub use service::IoService;
 pub use service::IoChannel;
 pub use service::IoManager;
 pub use service::TOKENS_PER_HANDLER;
-pub use panics::{PanicHandler, MayPanic, OnPanicListener, ForwardPanic};
 
 #[cfg(test)]
 mod tests {
@@ -168,5 +175,4 @@ mod tests {
 		let service = IoService::<MyMessage>::start().expect("Error creating network service");
 		service.register_handler(Arc::new(MyHandler)).unwrap();
 	}
-
 }

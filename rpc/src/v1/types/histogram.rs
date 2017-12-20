@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 //! Gas prices histogram.
 
 use v1::types::U256;
-use util::stats;
 
 /// Values of RPC settings.
 #[derive(Serialize, Deserialize)]
@@ -27,11 +26,11 @@ pub struct Histogram {
 	#[serde(rename="bucketBounds")]
 	pub bucket_bounds: Vec<U256>,
 	/// Transacion counts for each bucket.
-	pub counts: Vec<u64>,
+	pub counts: Vec<usize>,
 }
 
-impl From<stats::Histogram> for Histogram {
-	fn from(h: stats::Histogram) -> Self {
+impl From<::stats::Histogram<::bigint::prelude::U256>> for Histogram {
+	fn from(h: ::stats::Histogram<::bigint::prelude::U256>) -> Self {
 		Histogram {
 			bucket_bounds: h.bucket_bounds.into_iter().map(Into::into).collect(),
 			counts: h.counts

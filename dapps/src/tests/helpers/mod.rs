@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,19 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::env;
-use std::str;
-use std::ops::Deref;
+use std::{env, io, str};
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use env_logger::LogBuilder;
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_core::reactor::RpcEventLoop;
-
-use ServerBuilder;
-use Server;
-use fetch::Fetch;
-use devtools::http_client;
+use jsonrpc_core::IoHandler;
+use jsonrpc_http_server::{self as http, Host, DomainsValidation};
 use parity_reactor::Remote;
+
+use devtools::http_client;
+use hash_fetch::urlhint::ContractClient;
+use fetch::{Fetch, Client as FetchClient};
+use node_health::{NodeHealth, TimeChecker, CpuPool};
+
+use {Middleware, SyncStatus, WebProxyTokens};
 
 mod registrar;
 mod fetch;
@@ -35,6 +37,13 @@ use self::registrar::FakeRegistrar;
 use self::fetch::FakeFetch;
 
 const SIGNER_PORT: u16 = 18180;
+
+#[derive(Debug)]
+struct FakeSync(bool);
+impl SyncStatus for FakeSync {
+	fn is_major_importing(&self) -> bool { self.0 }
+	fn peers(&self) -> (usize, usize) { (0, 5) }
+}
 
 fn init_logger() {
 	// Initialize logger
@@ -45,20 +54,7 @@ fn init_logger() {
 	}
 }
 
-pub struct ServerLoop {
-	pub server: Server,
-	pub event_loop: RpcEventLoop,
-}
-
-impl Deref for ServerLoop {
-	type Target = Server;
-
-	fn deref(&self) -> &Self::Target {
-		&self.server
-	}
-}
-
-pub fn init_server<F, B>(process: F, remote: Remote) -> (ServerLoop, Arc<FakeRegistrar>) where
+pub fn init_server<F, B>(process: F, io: IoHandler) -> (Server, Arc<FakeRegistrar>) where
 	F: FnOnce(ServerBuilder) -> ServerBuilder<B>,
 	B: Fetch,
 {
@@ -67,87 +63,73 @@ pub fn init_server<F, B>(process: F, remote: Remote) -> (ServerLoop, Arc<FakeReg
 	let mut dapps_path = env::temp_dir();
 	dapps_path.push("non-existent-dir-to-prevent-fs-files-from-loading");
 
-	// TODO [ToDr] When https://github.com/ethcore/jsonrpc/issues/26 is resolved
-	// this additional EventLoop wouldn't be needed, we should be able to re-use remote.
-	let event_loop = RpcEventLoop::spawn();
-	let handler = event_loop.handler(Arc::new(MetaIoHandler::default()));
-	let server = process(ServerBuilder::new(
-		&dapps_path, registrar.clone(), remote,
-	))
-		.signer_address(Some(("127.0.0.1".into(), SIGNER_PORT)))
-		.start_unsecured_http(&"127.0.0.1:0".parse().unwrap(), handler).unwrap();
+	let mut builder = ServerBuilder::new(&dapps_path, registrar.clone());
+	builder.signer_address = Some(("127.0.0.1".into(), SIGNER_PORT));
+	let server = process(builder).start_unsecured_http(&"127.0.0.1:0".parse().unwrap(), io).unwrap();
 	(
-		ServerLoop { server: server, event_loop: event_loop },
+		server,
 		registrar,
 	)
 }
 
-pub fn serve_with_auth(user: &str, pass: &str) -> ServerLoop {
-	init_logger();
-	let registrar = Arc::new(FakeRegistrar::new());
-	let mut dapps_path = env::temp_dir();
-	dapps_path.push("non-existent-dir-to-prevent-fs-files-from-loading");
-
-	let event_loop = RpcEventLoop::spawn();
-	let handler = event_loop.handler(Arc::new(MetaIoHandler::default()));
-	let server = ServerBuilder::new(&dapps_path, registrar, Remote::new(event_loop.remote()))
-		.signer_address(Some(("127.0.0.1".into(), SIGNER_PORT)))
-		.allowed_hosts(None)
-		.start_basic_auth_http(&"127.0.0.1:0".parse().unwrap(), user, pass, handler).unwrap();
-	ServerLoop {
-		server: server,
-		event_loop: event_loop,
-	}
+pub fn serve_with_rpc(io: IoHandler) -> Server {
+	init_server(|builder| builder, io).0
 }
 
-pub fn serve_hosts(hosts: Option<Vec<String>>) -> ServerLoop {
-	init_server(|builder| builder.allowed_hosts(hosts), Remote::new_sync()).0
-}
-
-pub fn serve_with_registrar() -> (ServerLoop, Arc<FakeRegistrar>) {
-	init_server(|builder| builder.allowed_hosts(None), Remote::new_sync())
-}
-
-pub fn serve_with_registrar_and_sync() -> (ServerLoop, Arc<FakeRegistrar>) {
-	init_server(|builder| {
+pub fn serve_hosts(hosts: Option<Vec<String>>) -> Server {
+	let hosts = hosts.map(|hosts| hosts.into_iter().map(Into::into).collect());
+	init_server(|mut builder| {
+		builder.allowed_hosts = hosts.into();
 		builder
-			.sync_status(Arc::new(|| true))
-			.allowed_hosts(None)
-	}, Remote::new_sync())
+	}, Default::default()).0
 }
 
-pub fn serve_with_registrar_and_fetch() -> (ServerLoop, FakeFetch, Arc<FakeRegistrar>) {
-	serve_with_registrar_and_fetch_and_threads(false)
+pub fn serve_with_registrar() -> (Server, Arc<FakeRegistrar>) {
+	init_server(|builder| builder, Default::default())
 }
 
-pub fn serve_with_registrar_and_fetch_and_threads(multi_threaded: bool) -> (ServerLoop, FakeFetch, Arc<FakeRegistrar>) {
+pub fn serve_with_registrar_and_sync() -> (Server, Arc<FakeRegistrar>) {
+	init_server(|mut builder| {
+		builder.sync_status = Arc::new(FakeSync(true));
+		builder
+	}, Default::default())
+}
+
+pub fn serve_with_registrar_and_fetch() -> (Server, FakeFetch, Arc<FakeRegistrar>) {
 	let fetch = FakeFetch::default();
 	let f = fetch.clone();
 	let (server, reg) = init_server(move |builder| {
-		builder.allowed_hosts(None).fetch(f.clone())
-	}, if multi_threaded { Remote::new_thread_per_future() } else { Remote::new_sync() });
+		builder.fetch(f.clone())
+	}, Default::default());
 
 	(server, fetch, reg)
 }
 
-pub fn serve_with_fetch(web_token: &'static str) -> (ServerLoop, FakeFetch) {
+pub fn serve_with_fetch(web_token: &'static str, domain: &'static str) -> (Server, FakeFetch) {
 	let fetch = FakeFetch::default();
 	let f = fetch.clone();
-	let (server, _) = init_server(move |builder| {
-		builder
-			.allowed_hosts(None)
-			.fetch(f.clone())
-			.web_proxy_tokens(Arc::new(move |token| &token == web_token))
-	}, Remote::new_sync());
+	let (server, _) = init_server(move |mut builder| {
+		builder.web_proxy_tokens = Arc::new(move |token| {
+			if &token == web_token { Some(domain.into()) } else { None }
+		});
+		builder.fetch(f.clone())
+	}, Default::default());
 
 	(server, fetch)
 }
 
-pub fn serve() -> ServerLoop {
-	init_server(|builder| builder.allowed_hosts(None), Remote::new_sync()).0
+pub fn serve() -> Server {
+	init_server(|builder| builder, Default::default()).0
 }
 
-pub fn request(server: ServerLoop, request: &str) -> http_client::Response {
+pub fn serve_ui() -> Server {
+	init_server(|mut builder| {
+		builder.serve_ui = true;
+		builder
+	}, Default::default()).0
+}
+
+pub fn request(server: Server, request: &str) -> http_client::Response {
 	http_client::request(server.addr(), request)
 }
 
@@ -156,4 +138,160 @@ pub fn assert_security_headers(headers: &[String]) {
 }
 pub fn assert_security_headers_for_embed(headers: &[String]) {
 	http_client::assert_security_headers_present(headers, Some(SIGNER_PORT))
+}
+
+
+/// Webapps HTTP+RPC server build.
+pub struct ServerBuilder<T: Fetch = FetchClient> {
+	dapps_path: PathBuf,
+	registrar: Arc<ContractClient>,
+	sync_status: Arc<SyncStatus>,
+	web_proxy_tokens: Arc<WebProxyTokens>,
+	signer_address: Option<(String, u16)>,
+	allowed_hosts: DomainsValidation<Host>,
+	fetch: Option<T>,
+	serve_ui: bool,
+}
+
+impl ServerBuilder {
+	/// Construct new dapps server
+	pub fn new<P: AsRef<Path>>(dapps_path: P, registrar: Arc<ContractClient>) -> Self {
+		ServerBuilder {
+			dapps_path: dapps_path.as_ref().to_owned(),
+			registrar: registrar,
+			sync_status: Arc::new(FakeSync(false)),
+			web_proxy_tokens: Arc::new(|_| None),
+			signer_address: None,
+			allowed_hosts: DomainsValidation::Disabled,
+			fetch: None,
+			serve_ui: false,
+		}
+	}
+}
+
+impl<T: Fetch> ServerBuilder<T> {
+	/// Set a fetch client to use.
+	pub fn fetch<X: Fetch>(self, fetch: X) -> ServerBuilder<X> {
+		ServerBuilder {
+			dapps_path: self.dapps_path,
+			registrar: self.registrar,
+			sync_status: self.sync_status,
+			web_proxy_tokens: self.web_proxy_tokens,
+			signer_address: self.signer_address,
+			allowed_hosts: self.allowed_hosts,
+			fetch: Some(fetch),
+			serve_ui: self.serve_ui,
+		}
+	}
+
+	/// Asynchronously start server with no authentication,
+	/// returns result with `Server` handle on success or an error.
+	pub fn start_unsecured_http(self, addr: &SocketAddr, io: IoHandler) -> io::Result<Server> {
+		let fetch = self.fetch_client();
+		Server::start_http(
+			addr,
+			io,
+			self.allowed_hosts,
+			self.signer_address,
+			self.dapps_path,
+			vec![],
+			self.registrar,
+			self.sync_status,
+			self.web_proxy_tokens,
+			Remote::new_sync(),
+			fetch,
+			self.serve_ui,
+		)
+	}
+
+	fn fetch_client(&self) -> T {
+		match self.fetch.clone() {
+			Some(fetch) => fetch,
+			None => T::new().unwrap(),
+		}
+	}
+}
+
+const DAPPS_DOMAIN: &'static str = "web3.site";
+
+/// Webapps HTTP server.
+pub struct Server {
+	server: Option<http::Server>,
+}
+
+impl Server {
+	fn start_http<F: Fetch>(
+		addr: &SocketAddr,
+		io: IoHandler,
+		allowed_hosts: DomainsValidation<Host>,
+		signer_address: Option<(String, u16)>,
+		dapps_path: PathBuf,
+		extra_dapps: Vec<PathBuf>,
+		registrar: Arc<ContractClient>,
+		sync_status: Arc<SyncStatus>,
+		web_proxy_tokens: Arc<WebProxyTokens>,
+		remote: Remote,
+		fetch: F,
+		serve_ui: bool,
+	) -> io::Result<Server> {
+		let health = NodeHealth::new(
+			sync_status.clone(),
+			TimeChecker::new::<String>(&[], CpuPool::new(1)),
+			remote.clone(),
+		);
+		let pool = ::futures_cpupool::CpuPool::new(1);
+		let middleware = if serve_ui {
+			Middleware::ui(
+				pool,
+				health,
+				DAPPS_DOMAIN.into(),
+				registrar,
+				sync_status,
+				fetch,
+			)
+		} else {
+			Middleware::dapps(
+				pool,
+				health,
+				signer_address,
+				vec![],
+				vec![],
+				dapps_path,
+				extra_dapps,
+				DAPPS_DOMAIN.into(),
+				registrar,
+				sync_status,
+				web_proxy_tokens,
+				fetch,
+			)
+		};
+
+		let mut allowed_hosts: Option<Vec<Host>> = allowed_hosts.into();
+		allowed_hosts.as_mut().map(|hosts| {
+			hosts.push(format!("http://*.{}:*", DAPPS_DOMAIN).into());
+			hosts.push(format!("http://*.{}", DAPPS_DOMAIN).into());
+		});
+
+		http::ServerBuilder::new(io)
+			.request_middleware(middleware)
+			.allowed_hosts(allowed_hosts.into())
+			.cors(http::DomainsValidation::Disabled)
+			.start_http(addr)
+			.map(|server| Server {
+				server: Some(server),
+			})
+	}
+
+	/// Returns address that this server is bound to.
+	pub fn addr(&self) -> &SocketAddr {
+		self.server.as_ref()
+			.expect("server is always Some at the start; it's consumed only when object is dropped; qed")
+			.address()
+	}
+}
+
+impl Drop for Server {
+	fn drop(&mut self) {
+		self.server.take().unwrap().close()
+	}
 }

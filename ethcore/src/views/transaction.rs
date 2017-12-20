@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,8 +15,11 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 //! View onto transaction rlp
-use util::{U256, Bytes, Hashable, H256};
-use rlp::{Rlp, View};
+use bigint::prelude::U256;
+use bigint::hash::H256;
+use bytes::Bytes;
+use hash::keccak;
+use rlp::Rlp;
 
 /// View onto transaction rlp.
 pub struct TransactionView<'a> {
@@ -41,6 +44,11 @@ impl<'a> TransactionView<'a> {
 	/// Return reference to underlaying rlp.
 	pub fn rlp(&self) -> &Rlp<'a> {
 		&self.rlp
+	}
+
+	/// Returns transaction hash.
+	pub fn hash(&self) -> H256 {
+		keccak(self.rlp.as_raw())
 	}
 
 	/// Get the nonce field of the transaction.
@@ -68,17 +76,11 @@ impl<'a> TransactionView<'a> {
 	pub fn s(&self) -> U256 { self.rlp.val_at(8) }
 }
 
-impl<'a> Hashable for TransactionView<'a> {
-	fn sha3(&self) -> H256 {
-		self.rlp.as_raw().sha3()
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use std::str::FromStr;
-	use rustc_serialize::hex::FromHex;
-	use util::U256;
+	use rustc_hex::FromHex;
+	use bigint::prelude::U256;
 	use super::TransactionView;
 
 	#[test]

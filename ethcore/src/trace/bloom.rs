@@ -1,10 +1,9 @@
 use bloomchain::Bloom;
 use bloomchain::group::{BloomGroup, GroupPosition};
-use rlp::*;
 use basic_types::LogBloom;
 
 /// Helper structure representing bloom of the trace.
-#[derive(Clone)]
+#[derive(Clone, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct BlockTracesBloom(LogBloom);
 
 impl From<LogBloom> for BlockTracesBloom {
@@ -28,7 +27,7 @@ impl Into<Bloom> for BlockTracesBloom {
 }
 
 /// Represents group of X consecutive blooms.
-#[derive(Clone)]
+#[derive(Clone, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct BlockTracesBloomGroup {
 	blooms: Vec<BlockTracesBloom>,
 }
@@ -56,34 +55,6 @@ impl Into<BloomGroup> for BlockTracesBloomGroup {
 		BloomGroup {
 			blooms: blooms
 		}
-	}
-}
-
-impl Decodable for BlockTracesBloom {
-	fn decode<D>(decoder: &D) -> Result<Self, DecoderError> where D: Decoder {
-		Decodable::decode(decoder).map(BlockTracesBloom)
-	}
-}
-
-impl Encodable for BlockTracesBloom {
-	fn rlp_append(&self, s: &mut RlpStream) {
-		Encodable::rlp_append(&self.0, s)
-	}
-}
-
-impl Decodable for BlockTracesBloomGroup {
-	fn decode<D>(decoder: &D) -> Result<Self, DecoderError> where D: Decoder {
-		let blooms = Decodable::decode(decoder)?;
-		let group = BlockTracesBloomGroup {
-			blooms: blooms
-		};
-		Ok(group)
-	}
-}
-
-impl Encodable for BlockTracesBloomGroup {
-	fn rlp_append(&self, s: &mut RlpStream) {
-		Encodable::rlp_append(&self.blooms, s)
 	}
 }
 

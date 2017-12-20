@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,6 +16,11 @@
 
 //! State of all accounts in the system expressed in Plain Old Data.
 
+use std::fmt;
+use std::collections::BTreeMap;
+use itertools::Itertools;
+use bigint::hash::H256;
+use triehash::sec_trie_root;
 use util::*;
 use pod_account::{self, PodAccount};
 use types::state_diff::StateDiff;
@@ -77,7 +82,7 @@ pub fn diff_pod(pre: &PodState, post: &PodState) -> StateDiff {
 
 #[cfg(test)]
 mod test {
-	use util::*;
+	use std::collections::BTreeMap;
 	use types::state_diff::*;
 	use types::account_diff::*;
 	use pod_account::PodAccount;

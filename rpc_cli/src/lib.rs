@@ -1,13 +1,13 @@
 extern crate futures;
-
-extern crate ethcore_util as util;
-extern crate ethcore_rpc as rpc;
-extern crate ethcore_bigint as bigint;
 extern crate rpassword;
 
+extern crate ethcore_util as util;
+extern crate bigint;
+
+extern crate parity_rpc as rpc;
 extern crate parity_rpc_client as client;
 
-use rpc::v1::types::{U256, ConfirmationRequest};
+use rpc::signer::{U256, ConfirmationRequest};
 use client::signer_client::SignerRpc;
 use std::io::{Write, BufRead, BufReader, stdout, stdin};
 use std::path::PathBuf;

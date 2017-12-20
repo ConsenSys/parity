@@ -1,5 +1,5 @@
 
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,116 +15,133 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-const webpack = require('webpack');
+const fs = require('fs');
 const path = require('path');
-const ReactIntlAggregatePlugin = require('react-intl-aggregate-webpack-plugin');
+const rimraf = require('rimraf');
+const flatten = require('lodash.flatten');
+// const ReactIntlAggregatePlugin = require('react-intl-aggregate-webpack-plugin');
+const ExtractTextPlugin = require('extract-text-webpack-plugin');
 const WebpackErrorNotificationPlugin = require('webpack-error-notification');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const ExtractTextPlugin = require('extract-text-webpack-plugin');
-const ServiceWorkerWebpackPlugin = require('serviceworker-webpack-plugin');
-const ScriptExtHtmlWebpackPlugin = require('script-ext-html-webpack-plugin');
 
+const rulesEs6 = require('./rules/es6');
+const rulesParity = require('./rules/parity');
 const Shared = require('./shared');
-const DAPPS = require('../src/views/Dapps/builtin.json');
 
-const FAVICON = path.resolve(__dirname, '../assets/images/parity-logo-black-no-text.png');
+const DAPPS_BUILTIN = require('@parity/shared/lib/config/dappsBuiltin.json');
+const DAPPS_VIEWS = require('@parity/shared/lib/config/dappsViews.json');
+const DAPPS_ALL = []
+  .concat(DAPPS_BUILTIN, DAPPS_VIEWS)
+  .filter((dapp) => !dapp.skipBuild)
+  .filter((dapp) => dapp.package);
+
+const FAVICON = path.resolve(__dirname, '../node_modules/@parity/shared/assets/images/parity-logo-black-no-text.png');
 
 const DEST = process.env.BUILD_DEST || '.build';
 const ENV = process.env.NODE_ENV || 'development';
+const EMBED = process.env.EMBED;
+
 const isProd = ENV === 'production';
+const isEmbed = EMBED === '1' || EMBED === 'true';
+
+const entry = isEmbed
+  ? { embed: ['babel-polyfill', './embed.js'] }
+  : { bundle: ['babel-polyfill', './index.parity.js'] };
 
 module.exports = {
   cache: !isProd,
-  devtool: isProd ? '#hidden-source-map' : '#source-map',
-
+  devtool: isProd
+    ? false
+    : isEmbed ? '#source-map' : '#eval',
   context: path.join(__dirname, '../src'),
-  entry: Object.assign({}, Shared.dappsEntry, {
-    index: './index.js',
-    embed: './embed.js'
-  }),
+  entry,
   output: {
-    // publicPath: '/',
     path: path.join(__dirname, '../', DEST),
-    filename: '[name].[hash:10].js'
+    filename: '[name].js'
   },
 
   module: {
     rules: [
+      rulesParity,
+      rulesEs6,
       {
         test: /\.js$/,
-        exclude: /(node_modules)/,
-        // use: [ 'happypack/loader?id=js' ]
-        use: isProd ? ['babel-loader'] : [
-          'babel-loader?cacheDirectory=true'
-        ],
-        options: Shared.getBabelrc()
-      },
-      {
-        test: /\.js$/,
-        include: /node_modules\/material-ui-chip-input/,
-        use: [ 'babel-loader' ]
+        exclude: /node_modules/,
+        use: [{
+          loader: 'happypack/loader',
+          options: {
+            id: 'babel'
+          }
+        }]
       },
       {
         test: /\.json$/,
-        use: [ 'json-loader' ]
+        use: ['json-loader']
       },
       {
         test: /\.ejs$/,
-        use: [ 'ejs-loader' ]
+        use: ['ejs-loader']
       },
       {
-        test: /\.html$/,
-        use: [
-          'file-loader?name=[name].[ext]!extract-loader',
-          {
-            loader: 'html-loader',
-            options: {
-              root: path.resolve(__dirname, '../assets/images'),
-              attrs: ['img:src', 'link:href']
+        test: /\.md$/,
+        use: ['html-loader', 'markdown-loader']
+      },
+      {
+        test: /\.css$/,
+        include: /semantic-ui-css|@parity\/ui/,
+        use: ExtractTextPlugin.extract({
+          fallback: 'style-loader',
+          use: [
+            {
+              loader: 'css-loader',
+              options: {
+                minimize: isProd
+              }
             }
+          ]
+        })
+      },
+      {
+        test: /\.css$/,
+        exclude: /semantic-ui-css|@parity\/ui/,
+        use: ExtractTextPlugin.extract({
+          fallback: 'style-loader',
+          use: [
+            {
+              loader: 'css-loader',
+              options: {
+                importLoaders: 1,
+                localIdentName: '[name]_[local]_[hash:base64:10]',
+                minimize: isProd,
+                modules: true
+              }
+            },
+            {
+              loader: 'postcss-loader',
+              options: {
+                sourceMap: isProd,
+                plugins: [
+                  require('postcss-import'),
+                  require('postcss-nested'),
+                  require('postcss-simple-vars')
+                ]
+              }
+            }
+          ]
+        })
+      },
+      {
+        test: /\.(png|jpg|svg|woff|woff2|ttf|eot|otf)(\?.*)?$/,
+        use: {
+          loader: 'file-loader',
+          options: {
+            name: '[name].[hash:10].[ext]',
+            outputPath: '',
+            publicPath: '',
+            useRelativePath: false
           }
-        ]
-      },
-
-      {
-        test: /\.css$/,
-        include: [ /src/ ],
-        // exclude: [ /src\/dapps/ ],
-        loader: isProd ? ExtractTextPlugin.extract([
-          // 'style-loader',
-          'css-loader?modules&sourceMap&importLoaders=1&localIdentName=[name]__[local]___[hash:base64:5]',
-          'postcss-loader'
-        ]) : undefined,
-        // use: [ 'happypack/loader?id=css' ]
-        use: isProd ? undefined : [
-          'style-loader',
-          'css-loader?modules&sourceMap&importLoaders=1&localIdentName=[name]__[local]___[hash:base64:5]',
-          'postcss-loader'
-        ]
-      },
-
-      {
-        test: /\.css$/,
-        exclude: [ /src/ ],
-        use: [ 'style-loader', 'css-loader' ]
-      },
-      {
-        test: /\.(png|jpg)$/,
-        use: [ 'file-loader?&name=assets/[name].[hash:10].[ext]' ]
-      },
-      {
-        test: /\.(woff(2)|ttf|eot|otf)(\?v=[0-9]\.[0-9]\.[0-9])?$/,
-        use: [ 'file-loader?name=fonts/[name][hash:10].[ext]' ]
-      },
-      {
-        test: /parity-logo-white-no-text\.svg/,
-        use: [ 'url-loader' ]
-      },
-      {
-        test: /\.svg(\?v=[0-9]\.[0-9]\.[0-9])?$/,
-        exclude: [ /parity-logo-white-no-text\.svg/ ],
-        use: [ 'file-loader?name=assets/[name].[hash:10].[ext]' ]
+        }
       }
     ],
     noParse: [
@@ -133,9 +150,6 @@ module.exports = {
   },
 
   resolve: {
-    alias: {
-      '~': path.resolve(__dirname, '../src')
-    },
     modules: [
       path.join(__dirname, '../node_modules')
     ],
@@ -143,88 +157,105 @@ module.exports = {
     unsafeCache: true
   },
 
+  node: {
+    fs: 'empty'
+  },
+
   plugins: (function () {
-    const DappsHTMLInjection = DAPPS.filter((dapp) => !dapp.skipBuild).map((dapp) => {
-      return new HtmlWebpackPlugin({
-        title: dapp.name,
-        filename: dapp.url + '.html',
-        template: './dapps/index.ejs',
-        favicon: FAVICON,
-        secure: dapp.secure,
-        chunks: [ isProd ? null : 'commons', dapp.url ]
-      });
-    });
-
-    const plugins = Shared.getPlugins().concat(
-      new CopyWebpackPlugin([
-        { from: './error_pages.css', to: 'styles.css' },
-        { from: 'dapps/static' }
-      ], {}),
-
+    let plugins = Shared.getPlugins().concat(
       new WebpackErrorNotificationPlugin(),
-
-      new webpack.DllReferencePlugin({
-        context: '.',
-        manifest: require(`../${DEST}/vendor-manifest.json`)
+      new ExtractTextPlugin({
+        filename: `${isEmbed ? 'embed' : 'bundle'}.css`
       }),
-
-      new HtmlWebpackPlugin({
-        title: 'Parity',
-        filename: 'index.html',
-        template: './index.ejs',
-        favicon: FAVICON,
-        chunks: [
-          isProd ? null : 'commons',
-          'index'
-        ]
-      }),
-
-      new HtmlWebpackPlugin({
-        title: 'Parity Bar',
-        filename: 'embed.html',
-        template: './index.ejs',
-        favicon: FAVICON,
-        chunks: [
-          isProd ? null : 'commons',
-          'embed'
-        ]
-      }),
-
-      new ScriptExtHtmlWebpackPlugin({
-        sync: [ 'commons', 'vendor.js' ],
-        defaultAttribute: 'defer'
-      }),
-
-      new ServiceWorkerWebpackPlugin({
-        entry: path.join(__dirname, '../src/serviceWorker.js')
-      }),
-
-      DappsHTMLInjection
     );
 
-    if (!isProd) {
-      const DEST_I18N = path.join(__dirname, '..', DEST, 'i18n');
+    if (!isEmbed) {
+      plugins = [].concat(
+        plugins,
 
-      plugins.push(
-        new ReactIntlAggregatePlugin({
-          messagesPattern: DEST_I18N + '/src/**/*.json',
-          aggregateOutputDir: DEST_I18N + '/i18n/',
-          aggregateFilename: 'en'
+        new HtmlWebpackPlugin({
+          title: 'Parity',
+          filename: 'index.html',
+          template: './index.parity.ejs',
+          favicon: FAVICON,
+          chunks: ['bundle']
         }),
 
-        new webpack.optimize.CommonsChunkPlugin({
-          filename: 'commons.[hash:10].js',
-          name: 'commons',
-          minChunks: 2
-        })
+        new CopyWebpackPlugin(
+          flatten([
+            {
+              from: path.join(__dirname, '../src/dev.web3.html'),
+              to: 'dev.web3/index.html'
+            },
+            {
+              from: path.join(__dirname, '../src/dev.parity.html'),
+              to: 'dev.parity/index.html'
+            },
+            {
+              from: path.join(__dirname, '../src/error_pages.css'),
+              to: 'styles.css'
+            },
+            {
+              from: path.join(__dirname, '../src/index.electron.js'),
+              to: 'electron.js'
+            },
+            {
+              from: path.join(__dirname, '../package.electron.json'),
+              to: 'package.json'
+            },
+            flatten(
+              DAPPS_ALL
+                .map((dapp) => {
+                  const dir = path.join(__dirname, '../node_modules', dapp.package);
+
+                  if (!fs.existsSync(dir)) {
+                    return null;
+                  }
+
+                  if (!fs.existsSync(path.join(dir, 'dist'))) {
+                    rimraf.sync(path.join(dir, 'node_modules'));
+
+                    return {
+                      from: path.join(dir),
+                      to: `dapps/${dapp.id}/`
+                    };
+                  }
+
+                  return [
+                    'icon.png', 'index.html', 'dist.css', 'dist.js',
+                    isProd ? null : 'dist.css.map',
+                    isProd ? null : 'dist.js.map'
+                  ]
+                    .filter((file) => file)
+                    .map((file) => path.join(dir, file))
+                    .filter((from) => fs.existsSync(from))
+                    .map((from) => ({
+                      from,
+                      to: `dapps/${dapp.id}/`
+                    }))
+                    .concat({
+                      from: path.join(dir, 'dist'),
+                      to: `dapps/${dapp.id}/dist/`
+                    });
+                })
+                .filter((copy) => copy)
+            )
+          ]),
+          {}
+        )
       );
     }
 
-    if (isProd) {
-      plugins.push(new ExtractTextPlugin({
-        filename: 'styles/[name].[hash:10].css',
-        allChunks: true
-      }));
+    if (isEmbed) {
+      plugins.push(
+        new HtmlWebpackPlugin({
+          title: 'Parity Bar',
+          filename: 'embed.html',
+          template: './index.parity.ejs',
+          favicon: FAVICON,
+          chunks: ['embed']
+        })
+      );
     }
 
     return plugins;

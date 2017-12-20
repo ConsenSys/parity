@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,22 +16,31 @@
 
 //! No-op verifier.
 
-use blockchain::BlockProvider;
-use engines::Engine;
+use engines::EthEngine;
 use error::Error;
 use header::Header;
-use super::Verifier;
+use super::{verification, Verifier};
 
 /// A no-op verifier -- this will verify everything it's given immediately.
 #[allow(dead_code)]
 pub struct NoopVerifier;
 
 impl Verifier for NoopVerifier {
-	fn verify_block_family(&self, _header: &Header, _bytes: &[u8], _engine: &Engine, _bc: &BlockProvider) -> Result<(), Error> {
+	fn verify_block_family(
+		&self,
+		_: &Header,
+		_t: &Header,
+		_: &EthEngine,
+		_: Option<verification::FullFamilyParams>
+	) -> Result<(), Error> {
 		Ok(())
 	}
 
 	fn verify_block_final(&self, _expected: &Header, _got: &Header) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn verify_block_external(&self, _header: &Header, _engine: &EthEngine) -> Result<(), Error> {
 		Ok(())
 	}
 }

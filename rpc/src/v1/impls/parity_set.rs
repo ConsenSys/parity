@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,57 +16,55 @@
 
 /// Parity-specific rpc interface for operations altering the settings.
 use std::io;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use ethcore::miner::MinerService;
 use ethcore::client::MiningBlockChainClient;
 use ethcore::mode::Mode;
 use ethsync::ManageNetwork;
 use fetch::{self, Fetch};
-use futures::{self, BoxFuture, Future};
-use util::sha3;
+use hash::keccak_buffer;
 use updater::{Service as UpdateService};
 
-use jsonrpc_core::Error;
+use jsonrpc_core::{BoxFuture, Result};
+use jsonrpc_core::futures::Future;
+use v1::helpers::dapps::DappsService;
 use v1::helpers::errors;
 use v1::traits::ParitySet;
-use v1::types::{Bytes, H160, H256, U256, ReleaseInfo};
+use v1::types::{Bytes, H160, H256, U256, ReleaseInfo, Transaction, LocalDapp};
 
 /// Parity-specific rpc interface for operations altering the settings.
-pub struct ParitySetClient<C, M, U, F=fetch::Client> where
-	C: MiningBlockChainClient,
-	M: MinerService,
-	U: UpdateService,
-	F: Fetch,
-{
-	client: Weak<C>,
-	miner: Weak<M>,
-	updater: Weak<U>,
-	net: Weak<ManageNetwork>,
+pub struct ParitySetClient<C, M, U, F = fetch::Client> {
+	client: Arc<C>,
+	miner: Arc<M>,
+	updater: Arc<U>,
+	net: Arc<ManageNetwork>,
+	dapps: Option<Arc<DappsService>>,
 	fetch: F,
+	eip86_transition: u64,
 }
 
-impl<C, M, U, F> ParitySetClient<C, M, U, F> where
-	C: MiningBlockChainClient,
-	M: MinerService,
-	U: UpdateService,
-	F: Fetch,
+impl<C, M, U, F> ParitySetClient<C, M, U, F>
+	where C: MiningBlockChainClient + 'static,
 {
 	/// Creates new `ParitySetClient` with given `Fetch`.
-	pub fn new(client: &Arc<C>, miner: &Arc<M>, updater: &Arc<U>, net: &Arc<ManageNetwork>, fetch: F) -> Self {
+	pub fn new(
+		client: &Arc<C>,
+		miner: &Arc<M>,
+		updater: &Arc<U>,
+		net: &Arc<ManageNetwork>,
+		dapps: Option<Arc<DappsService>>,
+		fetch: F,
+	) -> Self {
 		ParitySetClient {
-			client: Arc::downgrade(client),
-			miner: Arc::downgrade(miner),
-			updater: Arc::downgrade(updater),
-			net: Arc::downgrade(net),
+			client: client.clone(),
+			miner: miner.clone(),
+			updater: updater.clone(),
+			net: net.clone(),
+			dapps: dapps,
 			fetch: fetch,
+			eip86_transition: client.eip86_transition(),
 		}
-	}
-
-	fn active(&self) -> Result<(), Error> {
-		// TODO: only call every 30s at most.
-		take_weak!(self.client).keep_alive();
-		Ok(())
 	}
 }
 
@@ -77,105 +75,82 @@ impl<C, M, U, F> ParitySet for ParitySetClient<C, M, U, F> where
 	F: Fetch + 'static,
 {
 
-	fn set_min_gas_price(&self, gas_price: U256) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_minimal_gas_price(gas_price.into());
+	fn set_min_gas_price(&self, gas_price: U256) -> Result<bool> {
+		self.miner.set_minimal_gas_price(gas_price.into());
 		Ok(true)
 	}
 
-	fn set_gas_floor_target(&self, target: U256) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_gas_floor_target(target.into());
+	fn set_gas_floor_target(&self, target: U256) -> Result<bool> {
+		self.miner.set_gas_floor_target(target.into());
 		Ok(true)
 	}
 
-	fn set_gas_ceil_target(&self, target: U256) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_gas_ceil_target(target.into());
+	fn set_gas_ceil_target(&self, target: U256) -> Result<bool> {
+		self.miner.set_gas_ceil_target(target.into());
 		Ok(true)
 	}
 
-	fn set_extra_data(&self, extra_data: Bytes) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_extra_data(extra_data.into_vec());
+	fn set_extra_data(&self, extra_data: Bytes) -> Result<bool> {
+		self.miner.set_extra_data(extra_data.into_vec());
 		Ok(true)
 	}
 
-	fn set_author(&self, author: H160) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_author(author.into());
+	fn set_author(&self, author: H160) -> Result<bool> {
+		self.miner.set_author(author.into());
 		Ok(true)
 	}
 
-	fn set_engine_signer(&self, address: H160, password: String) -> Result<bool, Error> {
-		self.active()?;
-		take_weak!(self.miner).set_engine_signer(address.into(), password).map_err(Into::into).map_err(errors::from_password_error)?;
+	fn set_engine_signer(&self, address: H160, password: String) -> Result<bool> {
+		self.miner.set_engine_signer(address.into(), password).map_err(Into::into).map_err(errors::password)?;
 		Ok(true)
 	}
 
-	fn set_transactions_limit(&self, limit: usize) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_transactions_limit(limit);
+	fn set_transactions_limit(&self, limit: usize) -> Result<bool> {
+		self.miner.set_transactions_limit(limit);
 		Ok(true)
 	}
 
-	fn set_tx_gas_limit(&self, limit: U256) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.miner).set_tx_gas_limit(limit.into());
+	fn set_tx_gas_limit(&self, limit: U256) -> Result<bool> {
+		self.miner.set_tx_gas_limit(limit.into());
 		Ok(true)
 	}
 
-	fn add_reserved_peer(&self, peer: String) -> Result<bool, Error> {
-		self.active()?;
-
-		match take_weak!(self.net).add_reserved_peer(peer) {
+	fn add_reserved_peer(&self, peer: String) -> Result<bool> {
+		match self.net.add_reserved_peer(peer) {
 			Ok(()) => Ok(true),
 			Err(e) => Err(errors::invalid_params("Peer address", e)),
 		}
 	}
 
-	fn remove_reserved_peer(&self, peer: String) -> Result<bool, Error> {
-		self.active()?;
-
-		match take_weak!(self.net).remove_reserved_peer(peer) {
+	fn remove_reserved_peer(&self, peer: String) -> Result<bool> {
+		match self.net.remove_reserved_peer(peer) {
 			Ok(()) => Ok(true),
 			Err(e) => Err(errors::invalid_params("Peer address", e)),
 		}
 	}
 
-	fn drop_non_reserved_peers(&self) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.net).deny_unreserved_peers();
+	fn drop_non_reserved_peers(&self) -> Result<bool> {
+		self.net.deny_unreserved_peers();
 		Ok(true)
 	}
 
-	fn accept_non_reserved_peers(&self) -> Result<bool, Error> {
-		self.active()?;
-
-		take_weak!(self.net).accept_unreserved_peers();
+	fn accept_non_reserved_peers(&self) -> Result<bool> {
+		self.net.accept_unreserved_peers();
 		Ok(true)
 	}
 
-	fn start_network(&self) -> Result<bool, Error> {
-		take_weak!(self.net).start_network();
+	fn start_network(&self) -> Result<bool> {
+		self.net.start_network();
 		Ok(true)
 	}
 
-	fn stop_network(&self) -> Result<bool, Error> {
-		take_weak!(self.net).stop_network();
+	fn stop_network(&self) -> Result<bool> {
+		self.net.stop_network();
 		Ok(true)
 	}
 
-	fn set_mode(&self, mode: String) -> Result<bool, Error> {
-		take_weak!(self.client).set_mode(match mode.as_str() {
+	fn set_mode(&self, mode: String) -> Result<bool> {
+		self.client.set_mode(match mode.as_str() {
 			"offline" => Mode::Off,
 			"dark" => Mode::Dark(300),
 			"passive" => Mode::Passive(300, 3600),
@@ -185,30 +160,42 @@ impl<C, M, U, F> ParitySet for ParitySetClient<C, M, U, F> where
 		Ok(true)
 	}
 
-	fn hash_content(&self, url: String) -> BoxFuture<H256, Error> {
-		if let Err(e) = self.active() {
-			return futures::failed(e).boxed();
-		}
+	fn set_spec_name(&self, spec_name: String) -> Result<bool> {
+		self.client.set_spec_name(spec_name);
+		Ok(true)
+	}
 
+	fn hash_content(&self, url: String) -> BoxFuture<H256> {
 		self.fetch.process(self.fetch.fetch(&url).then(move |result| {
 			result
-				.map_err(errors::from_fetch_error)
+				.map_err(errors::fetch)
 				.and_then(|response| {
-					sha3(&mut io::BufReader::new(response)).map_err(errors::from_fetch_error)
+					keccak_buffer(&mut io::BufReader::new(response)).map_err(errors::fetch)
 				})
 				.map(Into::into)
 		}))
 	}
 
-	fn upgrade_ready(&self) -> Result<Option<ReleaseInfo>, Error> {
-		self.active()?;
-		let updater = take_weak!(self.updater);
-		Ok(updater.upgrade_ready().map(Into::into))
+	fn dapps_refresh(&self) -> Result<bool> {
+		self.dapps.as_ref().map(|dapps| dapps.refresh_local_dapps()).ok_or_else(errors::dapps_disabled)
 	}
 
-	fn execute_upgrade(&self) -> Result<bool, Error> {
-		self.active()?;
-		let updater = take_weak!(self.updater);
-		Ok(updater.execute_upgrade())
+	fn dapps_list(&self) -> Result<Vec<LocalDapp>> {
+		self.dapps.as_ref().map(|dapps| dapps.list_dapps()).ok_or_else(errors::dapps_disabled)
+	}
+
+	fn upgrade_ready(&self) -> Result<Option<ReleaseInfo>> {
+		Ok(self.updater.upgrade_ready().map(Into::into))
+	}
+
+	fn execute_upgrade(&self) -> Result<bool> {
+		Ok(self.updater.execute_upgrade())
+	}
+
+	fn remove_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
+		let block_number = self.client.chain_info().best_block_number;
+		let hash = hash.into();
+
+		Ok(self.miner.remove_pending_transaction(&*self.client, &hash).map(|t| Transaction::from_pending(t, block_number, self.eip86_transition)))
 	}
 }

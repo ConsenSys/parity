@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,50 +14,104 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-import { uniq } from 'lodash';
+import uniq from 'lodash.uniq';
 import store from 'store';
 
-import Api from './api';
-import { LOG_KEYS, getLogger } from '~/config';
+import Api from '@parity/api';
+import { LOG_KEYS, getLogger } from '@parity/shared/lib/config';
 
 const log = getLogger(LOG_KEYS.Signer);
+
+const RPC_URL = '127.0.0.1:8545';
+const WS_URL = '127.0.0.1:8546';
+const UI_URL = '127.0.0.1:8180';
 
 export default class SecureApi extends Api {
   _isConnecting = false;
   _needsToken = false;
   _tokens = [];
+  _uiApi = null;
 
-  _dappsInterface = null;
-  _dappsPort = 8080;
-  _signerPort = 8180;
+  _dappsUrl = null;
+  _wsUrl = null;
+  _url = null;
 
-  static getTransport (url, sysuiToken) {
-    return new Api.Transport.Ws(url, sysuiToken, false);
+  static getHttpProvider (url, protocol) {
+    return new Api.Provider.Http(`${protocol}//${url || RPC_URL}/rpc`, 0);
   }
 
-  constructor (url, nextToken, getTransport = SecureApi.getTransport) {
+  static getWsProvider (url, protocol, sysuiToken) {
+    const transportUrl = SecureApi.transportWsUrl(url || WS_URL, protocol);
+
+    return new Api.Provider.Ws(transportUrl, sysuiToken, false);
+  }
+
+  static transportWsUrl (url, protocol) {
+    const proto = protocol() === 'https:' ? 'wss:' : 'ws:';
+
+    return `${proto}//${url}`;
+  }
+
+  // Returns a protocol with `:` at the end.
+  static protocol () {
+    return window.location.protocol === 'file:'
+      ? 'http:'
+      : window.location.protocol;
+  }
+
+  constructor (uiUrl, nextToken, getProvider = SecureApi.getWsProvider, protocol = SecureApi.protocol) {
     const sysuiToken = store.get('sysuiToken');
-    const transport = getTransport(url, sysuiToken);
+    const wsProvider = getProvider(uiUrl, protocol, sysuiToken);
 
-    super(transport);
+    super(wsProvider);
 
-    this._url = url;
+    this.protocol = protocol;
+    this._url = uiUrl || UI_URL;
+
+    const httpProvider = SecureApi.getHttpProvider(this._url, this.protocol());
+
+    this._uiApi = new Api(httpProvider, false);
+    this._wsUrl = uiUrl;
     // Try tokens from localStorage, from hash and 'initial'
     this._tokens = uniq([sysuiToken, nextToken, 'initial'])
       .filter((token) => token)
-      .map((token) => ({ value: token, tried: false }));
+      .map((value) => ({
+        value,
+        tried: false
+      }));
 
-    // When the transport is closed, try to reconnect
-    transport.on('close', this.connect, this);
+    // When the provider is closed, try to reconnect
+    wsProvider.on('close', this.connect, this);
+
     this.connect();
   }
 
+  get _dappsAddress () {
+    if (!this._dappsUrl) {
+      return {
+        host: null,
+        port: 8545
+      };
+    }
+
+    const [host, port] = this._dappsUrl.split(':');
+
+    return {
+      host,
+      port: port ? parseInt(port, 10) : null
+    };
+  }
+
   get dappsPort () {
-    return this._dappsPort;
+    return this._dappsAddress.port;
   }
 
   get dappsUrl () {
-    return `http://${this.hostname}:${this.dappsPort}`;
+    const { port } = this._dappsAddress;
+
+    return port
+      ? `${this.protocol()}//${this.hostname}:${port}`
+      : `${this.protocol()}//${this.hostname}`;
   }
 
   get hostname () {
@@ -65,15 +119,7 @@ export default class SecureApi extends Api {
       return 'dapps.parity';
     }
 
-    if (!this._dappsInterface || this._dappsInterface === '0.0.0.0') {
-      return window.location.hostname;
-    }
-
-    return this._dappsInterface;
-  }
-
-  get signerPort () {
-    return this._signerPort;
+    return this._dappsAddress.host || '127.0.0.1';
   }
 
   get isConnecting () {
@@ -81,7 +127,7 @@ export default class SecureApi extends Api {
   }
 
   get isConnected () {
-    return this._transport.isConnected;
+    return this.provider.isConnected;
   }
 
   get needsToken () {
@@ -89,7 +135,7 @@ export default class SecureApi extends Api {
   }
 
   get secureToken () {
-    return this._transport.token;
+    return this.provider.token;
   }
 
   connect () {
@@ -140,14 +186,31 @@ export default class SecureApi extends Api {
   }
 
   /**
+   * Resolves a wildcard address to `window.location.hostname`;
+   */
+  _resolveHost (url) {
+    const parts = url ? url.split(':') : [];
+    const port = parts[1];
+    let host = parts[0];
+
+    if (!host) {
+      return host;
+    }
+
+    if (host === '0.0.0.0') {
+      host = window.location.hostname;
+    }
+
+    return port ? `${host}:${port}` : host;
+  }
+
+  /**
    * Returns a Promise that gets resolved with
    * a boolean: `true` if the node is up, `false`
    * otherwise (HEAD request to the Node)
    */
   isNodeUp () {
-    const url = this._url.replace(/wss?/, 'http');
-
-    return fetch(url, { method: 'HEAD' })
+    return fetch(`${this.protocol()}//${this._url}/api/ping`, { method: 'HEAD' })
       .then(
         (r) => r.status === 200,
         () => false
@@ -198,11 +261,10 @@ export default class SecureApi extends Api {
         // If correct and valid token, wait until the Node is ready
         // and resolve as connected
         return this._waitUntilNodeReady()
-          .then(() => this._fetchSettings())
           .then(() => true);
       })
       .catch((error) => {
-        log.error('unkown error in _connect', error);
+        log.error('unknown error in _connect', error);
         return false;
       });
   }
@@ -217,11 +279,16 @@ export default class SecureApi extends Api {
     // Sanitize the token first
     const token = this._sanitiseToken(_token);
 
-    // Update the token in the transport layer
-    this.transport.updateToken(token, false);
-    log.debug('connecting with token', token);
+    const connectPromise = this._fetchSettings()
+      .then(() => {
+        // Update the URL and token in the transport layer
+        this.transport.url = SecureApi.transportWsUrl(this._wsUrl, this.protocol);
+        this.provider.updateToken(token, false);
 
-    return this.transport.connect()
+        log.debug('connecting with token', token);
+
+        return this.provider.connect();
+      })
       .then(() => {
         log.debug('connected with', token);
 
@@ -238,26 +305,35 @@ export default class SecureApi extends Api {
           log.debug('did not connect ; error', error);
         }
 
-        // Check if the Node is up
-        return this.isNodeUp()
-          .then((isNodeUp) => {
-            // If it's not up, try again in a few...
-            if (!isNodeUp) {
-              const timeout = this.transport.retryTimeout;
+        return false;
+      });
 
-              log.debug('node is not up ; will try again in', timeout, 'ms');
+    return Promise
+      .all([
+        connectPromise,
+        this.isNodeUp()
+      ])
+      .then(([ connected, isNodeUp ]) => {
+        if (connected) {
+          return true;
+        }
 
-              return new Promise((resolve, reject) => {
-                window.setTimeout(() => {
-                  this._connectWithToken(token).then(resolve).catch(reject);
-                }, timeout);
-              });
-            }
+        // If it's not up, try again in a few...
+        if (!isNodeUp) {
+          const timeout = this.transport.retryTimeout;
 
-            // The token is invalid
-            log.debug('tried with a wrong token', token);
-            return false;
+          log.debug('node is not up ; will try again in', timeout, 'ms');
+
+          return new Promise((resolve, reject) => {
+            window.setTimeout(() => {
+              this._connectWithToken(token).then(resolve).catch(reject);
+            }, timeout);
           });
+        }
+
+        // The token is invalid
+        log.debug('tried with a wrong token', token);
+        return false;
       });
   }
 
@@ -267,14 +343,13 @@ export default class SecureApi extends Api {
   _fetchSettings () {
     return Promise
       .all([
-        this.parity.dappsPort(),
-        this.parity.dappsInterface(),
-        this.parity.signerPort()
+        // ignore dapps disabled errors
+        this._uiApi.parity.dappsUrl().catch(() => null),
+        this._uiApi.parity.wsUrl()
       ])
-      .then(([dappsPort, dappsInterface, signerPort]) => {
-        this._dappsPort = dappsPort.toNumber();
-        this._dappsInterface = dappsInterface;
-        this._signerPort = signerPort.toNumber();
+      .then(([dappsUrl, wsUrl]) => {
+        this._dappsUrl = this._resolveHost(dappsUrl);
+        this._wsUrl = this._resolveHost(wsUrl);
       });
   }
 
@@ -326,7 +401,7 @@ export default class SecureApi extends Api {
    * the node is actually ready even when the client
    * is connected).
    *
-   * We check that the `parity_enode` RPC calls
+   * We check that the `parity_netChain` RPC calls
    * returns successfully
    */
   _waitUntilNodeReady (_timeleft) {
@@ -344,7 +419,7 @@ export default class SecureApi extends Api {
     const start = Date.now();
 
     return this
-      .parity.enode()
+      .parity.netChain()
       .then(() => true)
       .catch((error) => {
         if (!error) {

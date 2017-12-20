@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,10 +16,11 @@
 
 //! Peer status and capabilities.
 
-use rlp::{DecoderError, RlpDecodable, RlpEncodable, RlpStream, Stream, UntrustedRlp, View};
-use util::{H256, U256};
+use rlp::{DecoderError, Encodable, Decodable, RlpStream, UntrustedRlp};
+use bigint::prelude::U256;
+use bigint::hash::H256;
 
-use super::buffer_flow::FlowParams;
+use super::request_credits::FlowParams;
 
 // recognized handshake/announcement keys.
 // unknown keys are to be skipped, known keys have a defined order.
@@ -91,7 +92,7 @@ struct Parser<'a> {
 impl<'a> Parser<'a> {
 	// expect a specific next key, and decode the value.
 	// error on unexpected key or invalid value.
-	fn expect<T: RlpDecodable>(&mut self, key: Key) -> Result<T, DecoderError> {
+	fn expect<T: Decodable>(&mut self, key: Key) -> Result<T, DecoderError> {
 		self.expect_raw(key).and_then(|item| item.as_val())
 	}
 
@@ -110,7 +111,7 @@ impl<'a> Parser<'a> {
 
 	// get the next key and value RLP.
 	fn get_next(&mut self) -> Result<Option<(Key, UntrustedRlp<'a>)>, DecoderError> {
-		while self.pos < self.rlp.item_count() {
+		while self.pos < self.rlp.item_count()? {
 			let pair = self.rlp.at(self.pos)?;
 			let k: String = pair.val_at(0)?;
 
@@ -126,7 +127,7 @@ impl<'a> Parser<'a> {
 }
 
 // Helper for encoding a key-value pair
-fn encode_pair<T: RlpEncodable>(key: Key, val: &T) -> Vec<u8> {
+fn encode_pair<T: Encodable>(key: Key, val: &T) -> Vec<u8> {
 	let mut s = RlpStream::new_list(2);
 	s.append(&key.as_str()).append(val);
 	s.out()
@@ -207,7 +208,7 @@ impl Capabilities {
 /// Attempt to parse a handshake message into its three parts:
 ///   - chain status
 ///   - serving capabilities
-///   - buffer flow parameters
+///   - request credit parameters
 pub fn parse_handshake(rlp: UntrustedRlp) -> Result<(Status, Capabilities, Option<FlowParams>), DecoderError> {
 	let mut parser = Parser {
 		pos: 0,
@@ -300,7 +301,7 @@ pub struct Announcement {
 	pub serve_chain_since: Option<u64>,
 	/// optional new transaction-relay capability. false means "no change"
 	pub tx_relay: bool,
-	// TODO: changes in buffer flow?
+	// TODO: changes in request credits.
 }
 
 /// Parse an announcement.
@@ -372,9 +373,10 @@ pub fn write_announcement(announcement: &Announcement) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use super::super::buffer_flow::FlowParams;
-	use util::{U256, H256, FixedHash};
-	use rlp::{RlpStream, Stream ,UntrustedRlp, View};
+	use super::super::request_credits::FlowParams;
+	use bigint::prelude::U256;
+	use bigint::hash::H256;
+	use rlp::{RlpStream, UntrustedRlp};
 
 	#[test]
 	fn full_handshake() {
@@ -474,7 +476,7 @@ mod tests {
 		let handshake = write_handshake(&status, &capabilities, Some(&flow_params));
 		let interleaved = {
 			let handshake = UntrustedRlp::new(&handshake);
-			let mut stream = RlpStream::new_list(handshake.item_count() * 3);
+			let mut stream = RlpStream::new_list(handshake.item_count().unwrap_or(0) * 3);
 
 			for item in handshake.iter() {
 				stream.append_raw(item.as_raw(), 1);

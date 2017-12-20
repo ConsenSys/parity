@@ -1,5 +1,6 @@
 FROM ubuntu:14.04
 WORKDIR /build
+
 # install tools and dependencies
 RUN apt-get update && \
         apt-get install -y \
@@ -8,7 +9,10 @@ RUN apt-get update && \
         curl \
         git \
         file \
-        binutils
+        binutils \
+        libssl-dev \
+        pkg-config \
+        libudev-dev
 
 # install rustup
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -26,10 +30,8 @@ gcc -v &&\
 g++ -v
 
 # build parity
-RUN git clone https://github.com/ethcore/parity && \
-        cd parity && \
-        git checkout beta && \
-        git pull && \
+ADD . /build/parity
+RUN cd parity && \
         cargo build --release --verbose && \
         ls /build/parity/target/release/parity && \
         strip /build/parity/target/release/parity

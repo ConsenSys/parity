@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,23 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::{Arc, Weak};
 use std::fs;
 use std::io::Write;
 use std::path::{PathBuf};
-use target_info::Target;
-use util::misc;
-use ipc_common_types::{VersionInfo, ReleaseTrack};
-use util::path::restrict_permissions_owner;
-use util::{Address, H160, H256, FixedHash, Mutex, Bytes};
-use ethsync::{SyncProvider};
+use std::sync::{Arc, Weak};
+
 use ethcore::client::{BlockId, BlockChainClient, ChainNotify};
+use ethsync::{SyncProvider};
+use futures::future;
 use hash_fetch::{self as fetch, HashFetch};
 use hash_fetch::fetch::Client as FetchService;
 use operations::Operations;
 use parity_reactor::Remote;
+use path::restrict_permissions_owner;
 use service::{Service};
-use types::all::{ReleaseInfo, OperationsInfo, CapState};
+use target_info::Target;
+use types::{ReleaseInfo, OperationsInfo, CapState, VersionInfo, ReleaseTrack};
+use bigint::hash::{H160, H256};
+use util::Address;
+use bytes::Bytes;
+use parking_lot::Mutex;
+use util::misc;
 
 /// Filter for releases.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -79,6 +83,8 @@ struct UpdaterState {
 	installed: Option<ReleaseInfo>,
 
 	capability: CapState,
+
+	disabled: bool,
 }
 
 /// Service for checking for updates and determining whether we can achieve consensus.
@@ -204,17 +210,19 @@ impl Updater {
 	}
 
 	fn fetch_done(&self, result: Result<PathBuf, fetch::Error>) {
-		(|| -> Result<(), String> {
+		(|| -> Result<(), (String, bool)> {
 			let auto = {
 				let mut s = self.state.lock();
 				let fetched = s.fetching.take().unwrap();
-				let b = result.map_err(|e| format!("Unable to fetch update ({}): {:?}", fetched.version, e))?;
-				info!(target: "updater", "Fetched latest version ({}) OK to {}", fetched.version, b.display());
 				let dest = self.updates_path(&Self::update_file_name(&fetched.version));
-				fs::create_dir_all(dest.parent().expect("at least one thing pushed; qed")).map_err(|e| format!("Unable to create updates path: {:?}", e))?;
-				fs::copy(&b, &dest).map_err(|e| format!("Unable to copy update: {:?}", e))?;
-				restrict_permissions_owner(&dest, false, true).map_err(|e| format!("Unable to update permissions: {}", e))?;
-				info!(target: "updater", "Installed updated binary to {}", dest.display());
+				if !dest.exists() {
+					let b = result.map_err(|e| (format!("Unable to fetch update ({}): {:?}", fetched.version, e), false))?;
+					info!(target: "updater", "Fetched latest version ({}) OK to {}", fetched.version, b.display());
+					fs::create_dir_all(dest.parent().expect("at least one thing pushed; qed")).map_err(|e| (format!("Unable to create updates path: {:?}", e), true))?;
+					fs::copy(&b, &dest).map_err(|e| (format!("Unable to copy update: {:?}", e), true))?;
+					restrict_permissions_owner(&dest, false, true).map_err(|e| (format!("Unable to update permissions: {}", e), true))?;
+					info!(target: "updater", "Installed updated binary to {}", dest.display());
+				}
 				let auto = match self.update_policy.filter {
 					UpdateFilter::All => true,
 					UpdateFilter::Critical if fetched.is_critical /* TODO: or is on a bad fork */ => true,
@@ -228,7 +236,7 @@ impl Updater {
 				self.execute_upgrade();
 			}
 			Ok(())
-		})().unwrap_or_else(|e| warn!("{}", e));
+		})().unwrap_or_else(|(e, fatal)| { self.state.lock().disabled = fatal; warn!("{}", e); });
 	}
 
 	fn poll(&self) {
@@ -243,7 +251,7 @@ impl Updater {
 			if let Some(ops_addr) = self.client.upgrade().and_then(|c| c.registry_address("operations".into())) {
 				trace!(target: "updater", "Found operations at {}", ops_addr);
 				let client = self.client.clone();
-				*self.operations.lock() = Some(Operations::new(ops_addr, move |a, d| client.upgrade().ok_or("No client!".into()).and_then(|c| c.call_contract(a, d))));
+				*self.operations.lock() = Some(Operations::new(ops_addr, move |a, d| client.upgrade().ok_or("No client!".into()).and_then(|c| c.call_contract(BlockId::Latest, a, d))));
 			} else {
 				// No Operations contract - bail.
 				return;
@@ -266,17 +274,26 @@ impl Updater {
 				}
 			);
 			let mut s = self.state.lock();
+			let running_later = latest.track.version.version < self.version_info().version;
 			let running_latest = latest.track.version.hash == self.version_info().hash;
 			let already_have_latest = s.installed.as_ref().or(s.ready.as_ref()).map_or(false, |t| *t == latest.track);
-			if self.update_policy.enable_downloading && !running_latest && !already_have_latest {
+
+			if !s.disabled && self.update_policy.enable_downloading && !running_later && !running_latest && !already_have_latest {
 				if let Some(b) = latest.track.binary {
 					if s.fetching.is_none() {
-						info!(target: "updater", "Attempting to get parity binary {}", b);
-						s.fetching = Some(latest.track.clone());
-						drop(s);
-						let weak_self = self.weak_self.lock().clone();
-						let f = move |r: Result<PathBuf, fetch::Error>| if let Some(this) = weak_self.upgrade() { this.fetch_done(r) };
-						self.fetcher.lock().as_ref().expect("Created on `new`; qed").fetch(b, Box::new(f));
+						if self.updates_path(&Self::update_file_name(&latest.track.version)).exists() {
+							info!(target: "updater", "Already fetched binary.");
+							s.fetching = Some(latest.track.clone());
+							drop(s);
+							self.fetch_done(Ok(PathBuf::new()));
+						} else {
+							info!(target: "updater", "Attempting to get parity binary {}", b);
+							s.fetching = Some(latest.track.clone());
+							drop(s);
+							let weak_self = self.weak_self.lock().clone();
+							let f = move |r: Result<PathBuf, fetch::Error>| if let Some(this) = weak_self.upgrade() { this.fetch_done(r) };
+							self.fetcher.lock().as_ref().expect("Created on `new`; qed").fetch(b, Box::new(f));
+						}
 					}
 				}
 			}
@@ -325,9 +342,12 @@ impl fetch::urlhint::ContractClient for Updater {
 			.ok_or_else(|| "Registrar not available".into())
 	}
 
-	fn call(&self, address: Address, data: Bytes) -> Result<Bytes, String> {
-		self.client.upgrade().ok_or_else(|| "Client not available".to_owned())?
-			.call_contract(address, data)
+	fn call(&self, address: Address, data: Bytes) -> fetch::urlhint::BoxFuture<Bytes, String> {
+		Box::new(future::done(
+			self.client.upgrade()
+				.ok_or_else(|| "Client not available".into())
+				.and_then(move |c| c.call_contract(BlockId::Latest, address, data))
+		))
 	}
 }
 
@@ -353,6 +373,8 @@ impl Service for Updater {
 						s.installed = Some(r);
 						if let Some(ref h) = *self.exit_handler.lock() {
 							(*h)();
+						} else {
+							info!("Update installed; ready for restart.");
 						}
 						Ok(true)
 					}

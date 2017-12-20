@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 
 //! Light client synchronization.
 //!
-//! This will synchronize the header chain using LES messages.
+//! This will synchronize the header chain using PIP messages.
 //! Dataflow is largely one-directional as headers are pushed into
 //! the light client queue for import. Where possible, they are batched
 //! in groups.
@@ -32,18 +32,22 @@
 //!   announced blocks.
 //! - On bad block/response, punish peer and reset.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
 
-use light::client::LightChainClient;
+use ethcore::encoded;
+use light::client::{AsLightClient, LightChainClient};
 use light::net::{
-	Announcement, Handler, BasicContext, EventContext,
-	Capabilities, ReqId, Status,
+	PeerStatus, Announcement, Handler, BasicContext,
+	EventContext, Capabilities, ReqId, Status,
+	Error as NetError,
 };
-use light::request;
+use light::request::{self, CompleteHeadersRequest as HeadersRequest};
 use network::PeerId;
-use util::{Bytes, U256, H256, Mutex, RwLock};
+use bigint::prelude::U256;
+use bigint::hash::H256;
+use parking_lot::{Mutex, RwLock};
 use rand::{Rng, OsRng};
 
 use self::sync_round::{AbortReason, SyncRound, ResponseContext};
@@ -91,7 +95,7 @@ impl Peer {
 #[derive(Debug)]
 enum AncestorSearch {
 	Queued(u64), // queued to search for blocks starting from here.
-	Awaiting(ReqId, u64, request::Headers), // awaiting response for this request.
+	Awaiting(ReqId, u64, HeadersRequest), // awaiting response for this request.
 	Prehistoric, // prehistoric block found. TODO: start to roll back CHTs.
 	FoundCommon(u64, H256), // common block found.
 	Genesis, // common ancestor is the genesis.
@@ -106,13 +110,14 @@ impl AncestorSearch {
 	}
 
 	fn process_response<L>(self, ctx: &ResponseContext, client: &L) -> AncestorSearch
-		where L: LightChainClient
+		where L: AsLightClient
 	{
+		let client = client.as_light_client();
 		let first_num = client.chain_info().first_block_number.unwrap_or(0);
 		match self {
 			AncestorSearch::Awaiting(id, start, req) => {
 				if &id == ctx.req_id() {
-					match response::decode_and_verify(ctx.data(), &req) {
+					match response::verify(ctx.data(), &req) {
 						Ok(headers) => {
 							for header in &headers {
 								if client.is_known(&header.hash()) {
@@ -148,18 +153,31 @@ impl AncestorSearch {
 		}
 	}
 
+	fn requests_abandoned(self, req_ids: &[ReqId]) -> AncestorSearch {
+		match self {
+			AncestorSearch::Awaiting(id, start, req) => {
+				if req_ids.iter().find(|&x| x == &id).is_some() {
+					AncestorSearch::Queued(start)
+				} else {
+					AncestorSearch::Awaiting(id, start, req)
+				}
+			}
+			other => other,
+		}
+	}
+
 	fn dispatch_request<F>(self, mut dispatcher: F) -> AncestorSearch
-		where F: FnMut(request::Headers) -> Option<ReqId>
+		where F: FnMut(HeadersRequest) -> Option<ReqId>
 	{
-		const BATCH_SIZE: usize = 64;
+		const BATCH_SIZE: u64 = 64;
 
 		match self {
 			AncestorSearch::Queued(start) => {
-				let batch_size = ::std::cmp::min(start as usize, BATCH_SIZE);
+				let batch_size = ::std::cmp::min(start, BATCH_SIZE);
 				trace!(target: "sync", "Requesting {} reverse headers from {} to find common ancestor",
 					batch_size, start);
 
-				let req = request::Headers {
+				let req = HeadersRequest {
 					start: start.into(),
 					max: batch_size,
 					skip: 0,
@@ -192,46 +210,55 @@ struct ResponseCtx<'a> {
 	peer: PeerId,
 	req_id: ReqId,
 	ctx: &'a BasicContext,
-	data: &'a [Bytes],
+	data: &'a [encoded::Header],
 }
 
 impl<'a> ResponseContext for ResponseCtx<'a> {
 	fn responder(&self) -> PeerId { self.peer }
 	fn req_id(&self) -> &ReqId { &self.req_id }
-	fn data(&self) -> &[Bytes] { self.data }
+	fn data(&self) -> &[encoded::Header] { self.data }
 	fn punish_responder(&self) { self.ctx.disable_peer(self.peer) }
 }
 
 /// Light client synchronization manager. See module docs for more details.
-pub struct LightSync<L: LightChainClient> {
+pub struct LightSync<L: AsLightClient> {
+	start_block_number: u64,
 	best_seen: Mutex<Option<ChainInfo>>, // best seen block on the network.
 	peers: RwLock<HashMap<PeerId, Mutex<Peer>>>, // peers which are relevant to synchronization.
+	pending_reqs: Mutex<HashSet<ReqId>>, // requests from this handler.
 	client: Arc<L>,
 	rng: Mutex<OsRng>,
 	state: Mutex<SyncState>,
 }
 
-impl<L: LightChainClient> Handler for LightSync<L> {
-	fn on_connect(&self, ctx: &EventContext, status: &Status, capabilities: &Capabilities) {
-		if !capabilities.serve_headers {
-			trace!(target: "sync", "Disconnecting irrelevant peer: {}", ctx.peer());
-			ctx.disconnect_peer(ctx.peer());
-			return;
+impl<L: AsLightClient + Send + Sync> Handler for LightSync<L> {
+	fn on_connect(
+		&self,
+		ctx: &EventContext,
+		status: &Status,
+		capabilities: &Capabilities
+	) -> PeerStatus {
+		use std::cmp;
+
+		if capabilities.serve_headers {
+			let chain_info = ChainInfo {
+				head_td: status.head_td,
+				head_hash: status.head_hash,
+				head_num: status.head_num,
+			};
+
+			{
+				let mut best = self.best_seen.lock();
+				*best = cmp::max(best.clone(), Some(chain_info.clone()));
+			}
+
+			self.peers.write().insert(ctx.peer(), Mutex::new(Peer::new(chain_info)));
+			self.maintain_sync(ctx.as_basic());
+
+			PeerStatus::Kept
+		} else {
+			PeerStatus::Unkept
 		}
-
-		let chain_info = ChainInfo {
-			head_td: status.head_td,
-			head_hash: status.head_hash,
-			head_num: status.head_num,
-		};
-
-		{
-			let mut best = self.best_seen.lock();
-			*best = ::std::cmp::max(best.clone(), Some(chain_info.clone()));
-		}
-
-		self.peers.write().insert(ctx.peer(), Mutex::new(Peer::new(chain_info)));
-		self.maintain_sync(ctx.as_basic());
 	}
 
 	fn on_disconnect(&self, ctx: &EventContext, unfulfilled: &[ReqId]) {
@@ -260,6 +287,13 @@ impl<L: LightChainClient> Handler for LightSync<L> {
 			best.clone()
 		};
 
+		{
+			let mut pending_reqs = self.pending_reqs.lock();
+			for unfulfilled in unfulfilled {
+				pending_reqs.remove(&unfulfilled);
+			}
+		}
+
 		if new_best.is_none() {
 			debug!(target: "sync", "No peers remain. Reverting to idle");
 			*self.state.lock() = SyncState::Idle;
@@ -268,7 +302,8 @@ impl<L: LightChainClient> Handler for LightSync<L> {
 
 			*state = match mem::replace(&mut *state, SyncState::Idle) {
 				SyncState::Idle => SyncState::Idle,
-				SyncState::AncestorSearch(search) => SyncState::AncestorSearch(search),
+				SyncState::AncestorSearch(search) =>
+					SyncState::AncestorSearch(search.requests_abandoned(unfulfilled)),
 				SyncState::Rounds(round) => SyncState::Rounds(round.requests_abandoned(unfulfilled)),
 			};
 		}
@@ -312,10 +347,25 @@ impl<L: LightChainClient> Handler for LightSync<L> {
 		self.maintain_sync(ctx.as_basic());
 	}
 
-	fn on_block_headers(&self, ctx: &EventContext, req_id: ReqId, headers: &[Bytes]) {
-		if !self.peers.read().contains_key(&ctx.peer()) {
+	fn on_responses(&self, ctx: &EventContext, req_id: ReqId, responses: &[request::Response]) {
+		let peer = ctx.peer();
+		if !self.peers.read().contains_key(&peer) {
 			return
 		}
+
+		if !self.pending_reqs.lock().remove(&req_id) {
+			return
+		}
+
+		let headers = match responses.get(0) {
+			Some(&request::Response::Headers(ref response)) => &response.headers[..],
+			Some(_) => {
+				trace!("Disabling peer {} for wrong response type.", peer);
+				ctx.disable_peer(peer);
+				&[]
+			}
+			None => &[],
+		};
 
 		{
 			let mut state = self.state.lock();
@@ -344,7 +394,7 @@ impl<L: LightChainClient> Handler for LightSync<L> {
 }
 
 // private helpers
-impl<L: LightChainClient> LightSync<L> {
+impl<L: AsLightClient> LightSync<L> {
 	// Begins a search for the common ancestor and our best block.
 	// does not lock state, instead has a mutable reference to it passed.
 	fn begin_search(&self, state: &mut SyncState) {
@@ -354,8 +404,8 @@ impl<L: LightChainClient> LightSync<L> {
 			return;
 		}
 
-		self.client.flush_queue();
-		let chain_info = self.client.chain_info();
+		self.client.as_light_client().flush_queue();
+		let chain_info = self.client.as_light_client().chain_info();
 
 		trace!(target: "sync", "Beginning search for common ancestor from {:?}",
 			(chain_info.best_block_number, chain_info.best_block_hash));
@@ -366,8 +416,10 @@ impl<L: LightChainClient> LightSync<L> {
 	fn maintain_sync(&self, ctx: &BasicContext) {
 		const DRAIN_AMOUNT: usize = 128;
 
+		let client = self.client.as_light_client();
+		let chain_info = client.chain_info();
+
 		let mut state = self.state.lock();
-		let chain_info = self.client.chain_info();
 		debug!(target: "sync", "Maintaining sync ({:?})", &*state);
 
 		// drain any pending blocks into the queue.
@@ -376,7 +428,7 @@ impl<L: LightChainClient> LightSync<L> {
 
 			'a:
 			loop {
-				if self.client.queue_info().is_full() { break }
+				if client.queue_info().is_full() { break }
 
 				*state = match mem::replace(&mut *state, SyncState::Idle) {
 					SyncState::Rounds(round)
@@ -388,7 +440,7 @@ impl<L: LightChainClient> LightSync<L> {
 				trace!(target: "sync", "Drained {} headers to import", sink.len());
 
 				for header in sink.drain(..) {
-					if let Err(e) = self.client.queue_header(header) {
+					if let Err(e) = client.queue_header(header) {
 						debug!(target: "sync", "Found bad header ({:?}). Reset to search state.", e);
 
 						self.begin_search(&mut state);
@@ -403,8 +455,10 @@ impl<L: LightChainClient> LightSync<L> {
 			let best_td = chain_info.pending_total_difficulty;
 			let sync_target = match *self.best_seen.lock() {
 				Some(ref target) if target.head_td > best_td => (target.head_num, target.head_hash),
-				_ => {
-					trace!(target: "sync", "No target to sync to.");
+				ref other => {
+					let network_score = other.as_ref().map(|target| target.head_td);
+					trace!(target: "sync", "No target to sync to. Network score: {:?}, Local score: {:?}",
+						network_score, best_td);
 					*state = SyncState::Idle;
 					return;
 				}
@@ -458,22 +512,37 @@ impl<L: LightChainClient> LightSync<L> {
 					None
 				}
 			}).collect();
+
 			let mut rng = self.rng.lock();
+			let mut requested_from = HashSet::new();
 
 			// naive request dispatcher: just give to any peer which says it will
-			// give us responses.
-			let dispatcher = move |req: request::Headers| {
+			// give us responses. but only one request per peer per state transition.
+			let dispatcher = move |req: HeadersRequest| {
 				rng.shuffle(&mut peer_ids);
 
+				let request = {
+					let mut builder = request::Builder::default();
+					builder.push(request::Request::Headers(request::IncompleteHeadersRequest {
+						start: req.start.into(),
+						skip: req.skip,
+						max: req.max,
+						reverse: req.reverse,
+					})).expect("request provided fully complete with no unresolved back-references; qed");
+					builder.build()
+				};
 				for peer in &peer_ids {
-					if ctx.max_requests(*peer, request::Kind::Headers) >= req.max {
-						match ctx.request_from(*peer, request::Request::Headers(req.clone())) {
-							Ok(id) => {
-								return Some(id)
-							}
-							Err(e) =>
-								trace!(target: "sync", "Error requesting headers from viable peer: {}", e),
+					if requested_from.contains(peer) { continue }
+					match ctx.request_from(*peer, request.clone()) {
+						Ok(id) => {
+							self.pending_reqs.lock().insert(id.clone());
+							requested_from.insert(peer.clone());
+
+							return Some(id)
 						}
+						Err(NetError::NoCredits) => {}
+						Err(e) =>
+							trace!(target: "sync", "Error requesting headers from viable peer: {}", e),
 					}
 				}
 
@@ -492,18 +561,55 @@ impl<L: LightChainClient> LightSync<L> {
 }
 
 // public API
-impl<L: LightChainClient> LightSync<L> {
+impl<L: AsLightClient> LightSync<L> {
 	/// Create a new instance of `LightSync`.
 	///
 	/// This won't do anything until registered as a handler
 	/// so it can act on events.
 	pub fn new(client: Arc<L>) -> Result<Self, ::std::io::Error> {
 		Ok(LightSync {
+			start_block_number: client.as_light_client().chain_info().best_block_number,
 			best_seen: Mutex::new(None),
 			peers: RwLock::new(HashMap::new()),
+			pending_reqs: Mutex::new(HashSet::new()),
 			client: client,
-			rng: Mutex::new(try!(OsRng::new())),
+			rng: Mutex::new(OsRng::new()?),
 			state: Mutex::new(SyncState::Idle),
 		})
+	}
+}
+
+/// Trait for erasing the type of a light sync object and exposing read-only methods.
+pub trait SyncInfo {
+	/// Get the highest block advertised on the network.
+	fn highest_block(&self) -> Option<u64>;
+
+	/// Get the block number at the time of sync start.
+	fn start_block(&self) -> u64;
+
+	/// Whether major sync is underway.
+	fn is_major_importing(&self) -> bool;
+}
+
+impl<L: AsLightClient> SyncInfo for LightSync<L> {
+	fn highest_block(&self) -> Option<u64> {
+		self.best_seen.lock().as_ref().map(|x| x.head_num)
+	}
+
+	fn start_block(&self) -> u64 {
+		self.start_block_number
+	}
+
+	fn is_major_importing(&self) -> bool {
+		const EMPTY_QUEUE: usize = 3;
+
+		if self.client.as_light_client().queue_info().unverified_queue_size > EMPTY_QUEUE {
+			return true;
+		}
+
+		match *self.state.lock() {
+			SyncState::Idle => false,
+			_ => true,
+		}
 	}
 }

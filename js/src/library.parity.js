@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,10 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-import 'babel-polyfill/dist/polyfill.js';
-import es6Promise from 'es6-promise';
-es6Promise.polyfill();
-
 const isNode = typeof global !== 'undefined' && typeof global !== 'undefined';
 const isBrowser = typeof self !== 'undefined' && typeof self.window !== 'undefined';
 
@@ -29,7 +25,10 @@ if (isNode) {
   global.fetch = require('node-fetch');
 }
 
-import Abi from './abi';
-import Api from './api';
+import Abi from '@parity/abi';
+import Api from '@parity/api';
 
-module.exports = { Api, Abi };
+const Parity = { Api, Abi };
+
+export default Parity;
+export { Api, Abi };

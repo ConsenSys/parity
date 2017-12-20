@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -28,6 +28,8 @@
 //!
 
 extern crate ethcore_network as network;
+extern crate ethcore_bigint as bigint;
+extern crate ethcore_bytes as bytes;
 extern crate ethcore_io as io;
 extern crate ethcore;
 extern crate env_logger;
@@ -35,21 +37,24 @@ extern crate time;
 extern crate rand;
 extern crate semver;
 extern crate parking_lot;
+extern crate smallvec;
 extern crate rlp;
+extern crate ipnetwork;
+extern crate keccak_hash as hash;
+extern crate triehash;
+extern crate kvdb;
 
 extern crate ethcore_light as light;
 
-#[cfg(test)] extern crate ethcore_devtools as devtools;
 #[cfg(test)] extern crate ethkey;
+#[cfg(test)] extern crate kvdb_memorydb;
 
+#[macro_use]
+extern crate macros;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate ethcore_util as util;
-#[macro_use]
 extern crate heapsize;
-#[macro_use]
-extern crate ethcore_ipc as ipc;
 
 mod chain;
 mod blocks;
@@ -63,25 +68,11 @@ pub mod light_sync;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "ipc")]
-mod api {
-	#![allow(dead_code, unused_assignments, unused_variables, missing_docs)] // codegen issues
-	include!(concat!(env!("OUT_DIR"), "/api.rs"));
-}
-
-#[cfg(not(feature = "ipc"))]
 mod api;
 
-pub use api::{
-	EthSync, Params, SyncProvider, ManageNetwork, SyncConfig,
-	ServiceConfiguration, NetworkConfiguration, PeerInfo, AllowIP, TransactionStats,
-	LightSync, LightSyncParams, LesProtocolInfo, EthProtocolInfo,
-};
+pub use api::*;
 pub use chain::{SyncStatus, SyncState};
-pub use network::{is_valid_node_url, NonReservedPeerMode, NetworkError};
+pub use network::{validate_node_url, NonReservedPeerMode, Error, ErrorKind, ConnectionFilter, ConnectionDirection};
 
-/// IPC interfaces
-#[cfg(feature="ipc")]
-pub mod remote {
-	pub use api::{SyncClient, NetworkManagerClient};
-}
+#[cfg(test)]
+pub(crate) type Address = bigint::hash::H160;

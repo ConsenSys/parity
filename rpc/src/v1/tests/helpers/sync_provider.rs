@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,7 +17,8 @@
 //! Test implementation of SyncProvider.
 
 use std::collections::BTreeMap;
-use util::{H256, RwLock};
+use bigint::hash::H256;
+use parking_lot::RwLock;
 use ethsync::{SyncProvider, EthProtocolInfo, SyncStatus, SyncState, PeerInfo, TransactionStats};
 
 /// TestSyncProvider config.
@@ -74,29 +75,29 @@ impl SyncProvider for TestSyncProvider {
 		vec![
 			PeerInfo {
 				id: Some("node1".to_owned()),
-    			client_version: "Parity/1".to_owned(),
+				client_version: "Parity/1".to_owned(),
 				capabilities: vec!["eth/62".to_owned(), "eth/63".to_owned()],
-    			remote_address: "127.0.0.1:7777".to_owned(),
+				remote_address: "127.0.0.1:7777".to_owned(),
 				local_address: "127.0.0.1:8888".to_owned(),
 				eth_info: Some(EthProtocolInfo {
 					version: 62,
 					difficulty: Some(40.into()),
 					head: 50.into(),
 				}),
-				les_info: None,
+				pip_info: None,
 			},
 			PeerInfo {
 				id: None,
-    			client_version: "Parity/2".to_owned(),
+				client_version: "Parity/2".to_owned(),
 				capabilities: vec!["eth/63".to_owned(), "eth/64".to_owned()],
-    			remote_address: "Handshake".to_owned(),
+				remote_address: "Handshake".to_owned(),
 				local_address: "127.0.0.1:3333".to_owned(),
 				eth_info: Some(EthProtocolInfo {
 					version: 64,
 					difficulty: None,
 					head: 60.into()
 				}),
-				les_info: None,
+				pip_info: None,
 			}
 		]
 	}

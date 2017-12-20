@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Installing KCOV under ubuntu
 # https://users.rust-lang.org/t/tutorial-how-to-collect-test-coverages-for-rust-project/650#
 ### Install deps
@@ -20,36 +20,34 @@ if ! type $KCOV > /dev/null; then
 	exit 1
 fi
 
-. ./scripts/targets.sh
-cargo test $TARGETS --no-run || exit $?
+RUSTFLAGS="-C link-dead-code" cargo test --all --exclude parity-ipfs-api --exclude evmjit --no-run || exit $?
 
 
-
-KCOV_TARGET="target/kcov"
+KCOV_TARGET="target/cov"
 KCOV_FLAGS="--verify"
 EXCLUDE="/usr/lib,\
 /usr/include,\
 $HOME/.cargo,\
 $HOME/.multirust,\
 rocksdb,\
-secp256k1,\
-src/tests,\
-util/json-tests,\
-util/src/network/tests,\
-ethcore/src/evm/tests,\
-ethstore/tests,\
-target/debug/build,\
-target/release/build\
+secp256k1
 "
 
 rm -rf $KCOV_TARGET
 mkdir -p $KCOV_TARGET
-
+echo "Cover RUST"
 for FILE in `find target/debug/deps ! -name "*.*"`
 do
 	$KCOV --exclude-pattern $EXCLUDE $KCOV_FLAGS $KCOV_TARGET $FILE
 done
 
-$KCOV --coveralls-id=${TRAVIS_JOB_ID} --exclude-pattern $EXCLUDE $KCOV_FLAGS $KCOV_TARGET target/debug/parity-*
+$KCOV --exclude-pattern $EXCLUDE $KCOV_FLAGS $KCOV_TARGET target/debug/parity-*
+echo "Cover JS"
+cd js
+npm install&&npm run test:coverage
+cd ..
+codecov
+bash <(curl -s https://codecov.io/bash)&&
+echo "Uploaded code coverage"
 
 exit 0

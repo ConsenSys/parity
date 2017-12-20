@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use ipc::IpcConfig;
-use util::{H256, Bytes};
+use bigint::hash::H256;
+use bytes::Bytes;
 
 /// Represents what has to be handled by actor listening to chain events
-#[ipc]
 pub trait ChainNotify : Send + Sync {
 	/// fires when chain has new blocks.
-	fn new_blocks(&self,
+	fn new_blocks(
+		&self,
 		_imported: Vec<H256>,
 		_invalid: Vec<H256>,
 		_enacted: Vec<H256>,
@@ -29,7 +29,8 @@ pub trait ChainNotify : Send + Sync {
 		_sealed: Vec<H256>,
 		// Block bytes.
 		_proposed: Vec<Bytes>,
-		_duration: u64) {
+		_duration: u64,
+	) {
 		// does nothing by default
 	}
 
@@ -54,5 +55,3 @@ pub trait ChainNotify : Send + Sync {
 		// does nothing by default
 	}
 }
-
-impl IpcConfig for ChainNotify { }

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -22,98 +22,107 @@
 #![cfg_attr(feature="dev", allow(useless_format))]
 #![cfg_attr(feature="dev", allow(match_bool))]
 
-extern crate docopt;
-extern crate num_cpus;
-extern crate rustc_serialize;
-extern crate ethcore_devtools as devtools;
-extern crate ethcore;
-extern crate ethsync;
-extern crate env_logger;
-extern crate ethcore_logger;
+extern crate ansi_term;
+extern crate app_dirs;
 extern crate ctrlc;
+extern crate docopt;
+#[macro_use]
+extern crate clap;
+extern crate env_logger;
 extern crate fdlimit;
-extern crate time;
+extern crate futures;
+extern crate futures_cpupool;
+extern crate isatty;
+extern crate jsonrpc_core;
+extern crate num_cpus;
 extern crate number_prefix;
+extern crate parking_lot;
+extern crate regex;
+extern crate rlp;
 extern crate rpassword;
+extern crate rustc_hex;
 extern crate semver;
-extern crate ethcore_io as io;
-extern crate ethcore_ipc as ipc;
-extern crate ethcore_ipc_nano as nanoipc;
 extern crate serde;
 extern crate serde_json;
-extern crate jsonrpc_core;
-extern crate rlp;
-extern crate ethcore_light as light;
-extern crate parity_hash_fetch as hash_fetch;
-
-extern crate ethcore_ipc_hypervisor as hypervisor;
-extern crate ethcore_rpc;
-
-extern crate ethcore_signer;
-extern crate parity_updater as updater;
-extern crate ansi_term;
-
-extern crate regex;
-extern crate isatty;
-extern crate toml;
-extern crate app_dirs;
-extern crate parity_reactor;
-
 #[macro_use]
+extern crate serde_derive;
+extern crate time;
+extern crate toml;
+
+extern crate ethcore;
+extern crate ethcore_devtools as devtools;
+extern crate ethcore_io as io;
+extern crate ethcore_light as light;
+extern crate ethcore_logger;
 extern crate ethcore_util as util;
+extern crate ethcore_bigint as bigint;
+extern crate ethcore_bytes as bytes;
+extern crate ethcore_network as network;
+extern crate migration as migr;
+extern crate kvdb;
+extern crate kvdb_rocksdb;
+extern crate ethkey;
+extern crate ethsync;
+extern crate node_health;
+extern crate panic_hook;
+extern crate parity_hash_fetch as hash_fetch;
+extern crate parity_ipfs_api;
+extern crate parity_local_store as local_store;
+extern crate parity_reactor;
+extern crate parity_rpc;
+extern crate parity_updater as updater;
+extern crate parity_whisper;
+extern crate path;
+extern crate rpc_cli;
+extern crate node_filter;
+extern crate keccak_hash as hash;
+extern crate journaldb;
+
 #[macro_use]
 extern crate log as rlog;
-#[macro_use]
-extern crate hyper; // for price_info.rs
-#[macro_use]
-extern crate lazy_static;
 
 #[cfg(feature="stratum")]
 extern crate ethcore_stratum;
 
+#[cfg(feature="secretstore")]
+extern crate ethcore_secretstore;
+
 #[cfg(feature = "dapps")]
-extern crate ethcore_dapps;
+extern crate parity_dapps;
 
-extern crate rpc_cli;
+#[cfg(test)]
+#[macro_use]
+extern crate pretty_assertions;
 
-macro_rules! dependency {
-	($dep_ty:ident, $url:expr) => {
-		{
-			let dep = boot::dependency::<$dep_ty<_>>($url)
-				.unwrap_or_else(|e| panic!("Fatal: error connecting service ({:?})", e));
-			dep.handshake()
-				.unwrap_or_else(|e| panic!("Fatal: error in connected service ({:?})", e));
-			dep
-		}
-	}
-}
+#[cfg(windows)] extern crate ws2_32;
+#[cfg(windows)] extern crate winapi;
 
-mod cache;
-mod upgrade;
-mod rpc;
-mod dapps;
-mod informant;
-mod cli;
-mod configuration;
-mod migration;
-mod signer;
-mod rpc_apis;
-mod url;
-mod helpers;
-mod params;
-mod deprecated;
-mod dir;
-mod modules;
 mod account;
 mod blockchain;
+mod cache;
+mod cli;
+mod configuration;
+mod dapps;
+mod ipfs;
+mod deprecated;
+mod dir;
+mod helpers;
+mod informant;
+mod light_helpers;
+mod migration;
+mod modules;
+mod params;
 mod presale;
-mod snapshot;
+mod rpc;
+mod rpc_apis;
 mod run;
-#[cfg(feature="ipc")]
-mod sync;
-#[cfg(feature="ipc")]
-mod boot;
+mod secretstore;
+mod signer;
+mod snapshot;
+mod upgrade;
+mod url;
 mod user_defaults;
+mod whisper;
 
 #[cfg(feature="stratum")]
 mod stratum;
@@ -121,9 +130,9 @@ mod stratum;
 use std::{process, env};
 use std::collections::HashMap;
 use std::io::{self as stdio, BufReader, Read, Write};
-use std::fs::File;
+use std::fs::{remove_file, metadata, File, create_dir_all};
 use std::path::PathBuf;
-use util::sha3::sha3;
+use hash::keccak_buffer;
 use cli::Args;
 use configuration::{Cmd, Execute, Configuration};
 use deprecated::find_deprecated;
@@ -133,7 +142,7 @@ use dir::default_hypervisor_path;
 fn print_hash_of(maybe_file: Option<String>) -> Result<String, String> {
 	if let Some(file) = maybe_file {
 		let mut f = BufReader::new(File::open(&file).map_err(|_| "Unable to open file".to_owned())?);
-		let hash = sha3(&mut f).map_err(|_| "Unable to read from file".to_owned())?;
+		let hash = keccak_buffer(&mut f).map_err(|_| "Unable to read from file".to_owned())?;
 		Ok(hash.hex())
 	} else {
 		Err("Streaming from standard input not yet supported. Specify a file.".to_owned())
@@ -142,7 +151,7 @@ fn print_hash_of(maybe_file: Option<String>) -> Result<String, String> {
 
 enum PostExecutionAction {
 	Print(String),
-	Restart,
+	Restart(Option<String>),
 	Quit,
 }
 
@@ -151,15 +160,15 @@ fn execute(command: Execute, can_restart: bool) -> Result<PostExecutionAction, S
 
 	match command.cmd {
 		Cmd::Run(run_cmd) => {
-			let restart = run::execute(run_cmd, can_restart, logger)?;
-			Ok(if restart { PostExecutionAction::Restart } else { PostExecutionAction::Quit })
+			let (restart, spec_name) = run::execute(run_cmd, can_restart, logger)?;
+			Ok(if restart { PostExecutionAction::Restart(spec_name) } else { PostExecutionAction::Quit })
 		},
 		Cmd::Version => Ok(PostExecutionAction::Print(Args::print_version())),
 		Cmd::Hash(maybe_file) => print_hash_of(maybe_file).map(|s| PostExecutionAction::Print(s)),
 		Cmd::Account(account_cmd) => account::execute(account_cmd).map(|s| PostExecutionAction::Print(s)),
 		Cmd::ImportPresaleWallet(presale_cmd) => presale::execute(presale_cmd).map(|s| PostExecutionAction::Print(s)),
 		Cmd::Blockchain(blockchain_cmd) => blockchain::execute(blockchain_cmd).map(|_| PostExecutionAction::Quit),
-		Cmd::SignerToken(signer_cmd) => signer::execute(signer_cmd).map(|s| PostExecutionAction::Print(s)),
+		Cmd::SignerToken(ws_conf, ui_conf, logger_config) => signer::execute(ws_conf, ui_conf, logger_config).map(|s| PostExecutionAction::Print(s)),
 		Cmd::SignerSign { id, pwfile, port, authfile } => rpc_cli::signer_sign(id, pwfile, port, authfile).map(|s| PostExecutionAction::Print(s)),
 		Cmd::SignerList { port, authfile } => rpc_cli::signer_list(port, authfile).map(|s| PostExecutionAction::Print(s)),
 		Cmd::SignerReject { id, port, authfile } => rpc_cli::signer_reject(id, port, authfile).map(|s| PostExecutionAction::Print(s)),
@@ -169,7 +178,7 @@ fn execute(command: Execute, can_restart: bool) -> Result<PostExecutionAction, S
 
 fn start(can_restart: bool) -> Result<PostExecutionAction, String> {
 	let args: Vec<String> = env::args().collect();
-	let conf = Configuration::parse(&args).unwrap_or_else(|e| e.exit());
+	let conf = Configuration::parse(&args, take_spec_name_override()).unwrap_or_else(|e| e.exit());
 
 	let deprecated = find_deprecated(&conf.args);
 	for d in deprecated {
@@ -188,13 +197,7 @@ fn stratum_main(alt_mains: &mut HashMap<String, fn()>) {
 	alt_mains.insert("stratum".to_owned(), stratum::main);
 }
 
-#[cfg(not(feature="ipc"))]
 fn sync_main(_: &mut HashMap<String, fn()>) {}
-
-#[cfg(feature="ipc")]
-fn sync_main(alt_mains: &mut HashMap<String, fn()>) {
-	alt_mains.insert("sync".to_owned(), sync::main);
-}
 
 fn updates_path(name: &str) -> PathBuf {
 	let mut dest = PathBuf::from(default_hypervisor_path());
@@ -207,14 +210,43 @@ fn latest_exe_path() -> Option<PathBuf> {
 		.and_then(|mut f| { let mut exe = String::new(); f.read_to_string(&mut exe).ok().map(|_| updates_path(&exe)) })
 }
 
+fn set_spec_name_override(spec_name: String) {
+	if let Err(e) = create_dir_all(default_hypervisor_path())
+		.and_then(|_| File::create(updates_path("spec_name_overide"))
+		.and_then(|mut f| f.write_all(spec_name.as_bytes())))
+	{
+		warn!("Couldn't override chain spec: {} at {:?}", e, updates_path("spec_name_overide"));
+	}
+}
+
+fn take_spec_name_override() -> Option<String> {
+	let p = updates_path("spec_name_overide");
+	let r = File::open(p.clone()).ok()
+		.and_then(|mut f| { let mut spec_name = String::new(); f.read_to_string(&mut spec_name).ok().map(|_| spec_name) });
+	let _ = remove_file(p);
+	r
+}
+
 #[cfg(windows)]
 fn global_cleanup() {
-	extern "system" { pub fn WSACleanup() -> i32; }
 	// We need to cleanup all sockets before spawning another Parity process. This makes shure everything is cleaned up.
-	// The loop is required because of internal refernce counter for winsock dll. We don't know how many crates we use do 
+	// The loop is required because of internal refernce counter for winsock dll. We don't know how many crates we use do
 	// initialize it. There's at least 2 now.
 	for _ in 0.. 10 {
-		unsafe { WSACleanup(); }
+		unsafe { ::ws2_32::WSACleanup(); }
+	}
+}
+
+#[cfg(not(windows))]
+fn global_init() {}
+
+#[cfg(windows)]
+fn global_init() {
+	// When restarting in the same process this reinits windows sockets.
+	unsafe {
+		const WS_VERSION: u16 = 0x202;
+		let mut wsdata: ::winapi::winsock2::WSADATA = ::std::mem::zeroed();
+		::ws2_32::WSAStartup(WS_VERSION, &mut wsdata);
 	}
 }
 
@@ -223,15 +255,17 @@ fn global_cleanup() {}
 
 // Starts ~/.parity-updates/parity and returns the code it exits with.
 fn run_parity() -> Option<i32> {
-	global_cleanup();
+	global_init();
 	use ::std::ffi::OsString;
 	let prefix = vec![OsString::from("--can-restart"), OsString::from("--force-direct")];
-	latest_exe_path().and_then(|exe| process::Command::new(exe)
+	let res = latest_exe_path().and_then(|exe| process::Command::new(exe)
 		.args(&(env::args_os().skip(1).chain(prefix.into_iter()).collect::<Vec<_>>()))
 		.status()
 		.map(|es| es.code().unwrap_or(128))
 		.ok()
-	)
+	);
+	global_cleanup();
+	res
 }
 
 const PLEASE_RESTART_EXIT_CODE: i32 = 69;
@@ -239,17 +273,23 @@ const PLEASE_RESTART_EXIT_CODE: i32 = 69;
 // Run our version of parity.
 // Returns the exit error code.
 fn main_direct(can_restart: bool) -> i32 {
+	global_init();
 	let mut alt_mains = HashMap::new();
 	sync_main(&mut alt_mains);
 	stratum_main(&mut alt_mains);
-	if let Some(f) = std::env::args().nth(1).and_then(|arg| alt_mains.get(&arg.to_string())) {
+	let res = if let Some(f) = std::env::args().nth(1).and_then(|arg| alt_mains.get(&arg.to_string())) {
 		f();
 		0
 	} else {
 		match start(can_restart) {
 			Ok(result) => match result {
 				PostExecutionAction::Print(s) => { println!("{}", s); 0 },
-				PostExecutionAction::Restart => PLEASE_RESTART_EXIT_CODE,
+				PostExecutionAction::Restart(spec_name_override) => {
+					if let Some(spec_name) = spec_name_override {
+						set_spec_name_override(spec_name);
+					}
+					PLEASE_RESTART_EXIT_CODE
+				},
 				PostExecutionAction::Quit => 0,
 			},
 			Err(err) => {
@@ -257,7 +297,9 @@ fn main_direct(can_restart: bool) -> i32 {
 				1
 			},
 		}
-	}
+	};
+	global_cleanup();
+	res
 }
 
 fn println_trace_main(s: String) {
@@ -273,8 +315,7 @@ macro_rules! trace_main {
 }
 
 fn main() {
-	// Always print backtrace on panic.
-	env::set_var("RUST_BACKTRACE", "1");
+	panic_hook::set();
 
 	// assuming the user is not running with `--force-direct`, then:
 	// if argv[0] == "parity" and this executable != ~/.parity-updates/parity, run that instead.
@@ -291,8 +332,19 @@ fn main() {
 			let latest_exe = latest_exe_path();
 			let have_update = latest_exe.as_ref().map_or(false, |p| p.exists());
 			let is_non_updated_current = exe.as_ref().map_or(false, |exe| latest_exe.as_ref().map_or(false, |lexe| exe.canonicalize().ok() != lexe.canonicalize().ok()));
-			trace_main!("Starting... (have-update: {}, non-updated-current: {})", have_update, is_non_updated_current);
-			let exit_code = if have_update && is_non_updated_current {
+			let update_is_newer = match (
+				latest_exe.as_ref()
+					.and_then(|p| metadata(p.as_path()).ok())
+					.and_then(|m| m.modified().ok()),
+				exe.as_ref()
+					.and_then(|p| metadata(p.as_path()).ok())
+					.and_then(|m| m.modified().ok())
+			) {
+				(Some(latest_exe_time), Some(this_exe_time)) if latest_exe_time > this_exe_time => true,
+				_ => false,
+			};
+			trace_main!("Starting... (have-update: {}, non-updated-current: {}, update-is-newer: {})", have_update, is_non_updated_current, update_is_newer);
+			let exit_code = if have_update && is_non_updated_current && update_is_newer {
 				trace_main!("Attempting to run latest update ({})...", latest_exe.as_ref().expect("guarded by have_update; latest_exe must exist for have_update; qed").display());
 				run_parity().unwrap_or_else(|| { trace_main!("Falling back to local..."); main_direct(true) })
 			} else {

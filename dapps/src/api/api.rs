@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,156 +15,83 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::sync::Arc;
-use unicase::UniCase;
-use hyper::{server, net, Decoder, Encoder, Next, Control};
-use hyper::header;
-use hyper::method::Method;
-use hyper::header::AccessControlAllowOrigin;
 
-use api::types::{App, ApiError};
+use hyper::{Method, StatusCode};
+
 use api::response;
 use apps::fetcher::Fetcher;
-
-use handlers::extract_url;
-use endpoint::{Endpoint, Endpoints, Handler, EndpointPath};
-use jsonrpc_http_server::cors;
+use endpoint::{Endpoint, Request, Response, EndpointPath};
+use futures::{future, Future};
+use node_health::{NodeHealth, HealthStatus};
 
 #[derive(Clone)]
 pub struct RestApi {
-	cors_domains: Option<Vec<AccessControlAllowOrigin>>,
-	endpoints: Arc<Endpoints>,
 	fetcher: Arc<Fetcher>,
-}
-
-impl RestApi {
-	pub fn new(cors_domains: Vec<String>, endpoints: Arc<Endpoints>, fetcher: Arc<Fetcher>) -> Box<Endpoint> {
-		Box::new(RestApi {
-			cors_domains: Some(cors_domains.into_iter().map(AccessControlAllowOrigin::Value).collect()),
-			endpoints: endpoints,
-			fetcher: fetcher,
-		})
-	}
-
-	fn list_apps(&self) -> Vec<App> {
-		self.endpoints.iter().filter_map(|(ref k, ref e)| {
-			e.info().map(|ref info| App::from_info(k, info))
-		}).collect()
-	}
+	health: NodeHealth,
 }
 
 impl Endpoint for RestApi {
-	fn to_async_handler(&self, path: EndpointPath, control: Control) -> Box<Handler> {
-		Box::new(RestApiRouter::new(self.clone(), path, control))
-	}
-}
-
-struct RestApiRouter {
-	api: RestApi,
-	origin: Option<String>,
-	path: Option<EndpointPath>,
-	control: Option<Control>,
-	handler: Box<Handler>,
-}
-
-impl RestApiRouter {
-	fn new(api: RestApi, path: EndpointPath, control: Control) -> Self {
-		RestApiRouter {
-			path: Some(path),
-			origin: None,
-			control: Some(control),
-			api: api,
-			handler: response::as_json_error(&ApiError {
-				code: "404".into(),
-				title: "Not Found".into(),
-				detail: "Resource you requested has not been found.".into(),
-			}),
-		}
-	}
-
-	fn resolve_content(&self, hash: Option<&str>, path: EndpointPath, control: Control) -> Option<Box<Handler>> {
-		match hash {
-			Some(hash) if self.api.fetcher.contains(hash) => {
-				Some(self.api.fetcher.to_async_handler(path, control))
-			},
-			_ => None
-		}
-	}
-
-	/// Returns basic headers for a response (it may be overwritten by the handler)
-	fn response_headers(&self) -> header::Headers {
-		let mut headers = header::Headers::new();
-		headers.set(header::AccessControlAllowCredentials);
-		headers.set(header::AccessControlAllowMethods(vec![
-			Method::Options,
-			Method::Post,
-			Method::Get,
-		]));
-		headers.set(header::AccessControlAllowHeaders(vec![
-			UniCase("origin".to_owned()),
-			UniCase("content-type".to_owned()),
-			UniCase("accept".to_owned()),
-		]));
-
-		if let Some(cors_header) = cors::get_cors_header(&self.api.cors_domains, &self.origin) {
-			headers.set(cors_header);
+	fn respond(&self, mut path: EndpointPath, req: Request) -> Response {
+		if let Method::Options = *req.method() {
+			return Box::new(future::ok(response::empty()));
 		}
 
-		headers
-	}
-}
+		let endpoint = path.app_params.get(0).map(String::to_owned);
+		let hash = path.app_params.get(1).map(String::to_owned);
 
-impl server::Handler<net::HttpStream> for RestApiRouter {
-
-	fn on_request(&mut self, request: server::Request<net::HttpStream>) -> Next {
-		self.origin = cors::read_origin(&request);
-
-		if let Method::Options = *request.method() {
-			self.handler = response::empty();
-			return Next::write();
-		}
-
-		let url = extract_url(&request);
-		if url.is_none() {
-			// Just return 404 if we can't parse URL
-			return Next::write();
-		}
-
-		let url = url.expect("Check for None early-exists above; qed");
-		let mut path = self.path.take().expect("on_request called only once, and path is always defined in new; qed");
-		let control = self.control.take().expect("on_request called only once, and control is always defined in new; qed");
-
-		let endpoint = url.path.get(1).map(|v| v.as_str());
-		let hash = url.path.get(2).map(|v| v.as_str());
 		// at this point path.app_id contains 'api', adjust it to the hash properly, otherwise
 		// we will try and retrieve 'api' as the hash when doing the /api/content route
-		if let Some(ref hash) = hash { path.app_id = hash.clone().to_owned() }
-
-		let handler = endpoint.and_then(|v| match v {
-			"apps" => Some(response::as_json(&self.api.list_apps())),
-			"ping" => Some(response::ping()),
-			"content" => self.resolve_content(hash, path, control),
-			_ => None
-		});
-
-		// Overwrite default
-		if let Some(h) = handler {
-			self.handler = h;
+		if let Some(ref hash) = hash {
+			path.app_id = hash.to_owned();
 		}
 
-		self.handler.on_request(request)
+		trace!(target: "dapps", "Handling /api request: {:?}/{:?}", endpoint, hash);
+		match endpoint.as_ref().map(String::as_str) {
+			Some("ping") => Box::new(future::ok(response::ping(req))),
+			Some("health") => self.health(),
+			Some("content") => self.resolve_content(hash.as_ref().map(String::as_str), path, req),
+			_ => Box::new(future::ok(response::not_found())),
+		}
+	}
+}
+
+impl RestApi {
+	pub fn new(
+		fetcher: Arc<Fetcher>,
+		health: NodeHealth,
+	) -> Box<Endpoint> {
+		Box::new(RestApi {
+			fetcher,
+			health,
+		})
 	}
 
-	fn on_request_readable(&mut self, decoder: &mut Decoder<net::HttpStream>) -> Next {
-		self.handler.on_request_readable(decoder)
+	fn resolve_content(&self, hash: Option<&str>, path: EndpointPath, req: Request) -> Response {
+		trace!(target: "dapps", "Resolving content: {:?} from path: {:?}", hash, path);
+		match hash {
+			Some(hash) if self.fetcher.contains(hash) => {
+				self.fetcher.respond(path, req)
+			},
+			_ => Box::new(future::ok(response::not_found())),
+		}
 	}
 
-	fn on_response(&mut self, res: &mut server::Response) -> Next {
-		*res.headers_mut() = self.response_headers();
-		self.handler.on_response(res)
-	}
+	fn health(&self) -> Response {
+		Box::new(self.health.health()
+			.then(|health| {
+				let status = match health {
+					Ok(ref health) => {
+						if [&health.peers.status, &health.sync.status].iter().any(|x| *x != &HealthStatus::Ok) {
+							StatusCode::PreconditionFailed // HTTP 412
+						} else {
+							StatusCode::Ok // HTTP 200
+						}
+					},
+					_ => StatusCode::ServiceUnavailable, // HTTP 503
+				};
 
-	fn on_response_writable(&mut self, encoder: &mut Encoder<net::HttpStream>) -> Next {
-		self.handler.on_response_writable(encoder)
+				Ok(response::as_json(status, &health).into())
+			})
+		)
 	}
-
 }

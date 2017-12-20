@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,12 +15,11 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 use bloomchain as bc;
-use rlp::*;
-use util::HeapSizeOf;
+use heapsize::HeapSizeOf;
 use basic_types::LogBloom;
 
 /// Helper structure representing bloom of the trace.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct Bloom(LogBloom);
 
 impl From<LogBloom> for Bloom {
@@ -40,18 +39,6 @@ impl Into<bc::Bloom> for Bloom {
 	fn into(self) -> bc::Bloom {
 		let log = self.0;
 		bc::Bloom::from(log.0)
-	}
-}
-
-impl Decodable for Bloom {
-	fn decode<D>(decoder: &D) -> Result<Self, DecoderError> where D: Decoder {
-		Decodable::decode(decoder).map(Bloom)
-	}
-}
-
-impl Encodable for Bloom {
-	fn rlp_append(&self, s: &mut RlpStream) {
-		Encodable::rlp_append(&self.0, s)
 	}
 }
 

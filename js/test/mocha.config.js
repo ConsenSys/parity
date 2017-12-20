@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -23,6 +23,8 @@ es6Promise.polyfill();
 import injectTapEventPlugin from 'react-tap-event-plugin';
 injectTapEventPlugin();
 
+import Enzyme from 'enzyme';
+import Adapter from 'enzyme-adapter-react-16';
 import chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import chaiEnzyme from 'chai-enzyme';
@@ -31,6 +33,7 @@ import sinonChai from 'sinon-chai';
 import { WebSocket } from 'mock-socket';
 import jsdom from 'jsdom';
 
+Enzyme.configure({ adapter: new Adapter() });
 chai.use(chaiAsPromised);
 chai.use(chaiEnzyme());
 chai.use(sinonChai);
@@ -43,6 +46,8 @@ global.WebSocket = WebSocket;
 global.document = jsdom.jsdom('<!doctype html><html><body></body></html>');
 global.window = document.defaultView;
 global.navigator = global.window.navigator;
+global.location = global.window.location;
+global.Blob = () => { };
 
 // attach mocked localStorage onto the window as exposed by jsdom
 global.window.localStorage = global.localStorage;

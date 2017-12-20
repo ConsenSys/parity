@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -19,13 +19,15 @@
 
 use std::time::Duration;
 use std::ops::{Deref, DerefMut};
-use std::cell::Cell;
 use transaction::{SignedTransaction, Action};
 use transient_hashmap::TransientHashMap;
 use miner::{TransactionQueue, TransactionQueueDetailsProvider, TransactionImportResult, TransactionOrigin};
 use miner::transaction_queue::QueuingInstant;
 use error::{Error, TransactionError};
-use util::{Uint, U256, H256, Address, Hashable};
+use bigint::prelude::U256;
+use bigint::hash::H256;
+use util::Address;
+use hash::keccak;
 
 type Count = u16;
 
@@ -47,15 +49,15 @@ impl Default for Threshold {
 pub struct BanningTransactionQueue {
 	queue: TransactionQueue,
 	ban_threshold: Threshold,
-	senders_bans: TransientHashMap<Address, Cell<Count>>,
-	recipients_bans: TransientHashMap<Address, Cell<Count>>,
-	codes_bans: TransientHashMap<H256, Cell<Count>>,
+	senders_bans: TransientHashMap<Address, Count>,
+	recipients_bans: TransientHashMap<Address, Count>,
+	codes_bans: TransientHashMap<H256, Count>,
 }
 
 impl BanningTransactionQueue {
 	/// Creates new banlisting transaction queue
 	pub fn new(queue: TransactionQueue, ban_threshold: Threshold, ban_lifetime: Duration) -> Self {
-		let ban_lifetime_sec = ban_lifetime.as_secs();
+		let ban_lifetime_sec = ban_lifetime.as_secs() as u32;
 		assert!(ban_lifetime_sec > 0, "Lifetime has to be specified in seconds.");
 		BanningTransactionQueue {
 			queue: queue,
@@ -87,7 +89,7 @@ impl BanningTransactionQueue {
 
 			// Check sender
 			let sender = transaction.sender();
-			let count = self.senders_bans.direct().get(&sender).map(|v| v.get()).unwrap_or(0);
+			let count = self.senders_bans.direct().get(&sender).cloned().unwrap_or(0);
 			if count > threshold {
 				debug!(target: "txqueue", "Ignoring transaction {:?} because sender is banned.", transaction.hash());
 				return Err(Error::Transaction(TransactionError::SenderBanned));
@@ -95,7 +97,7 @@ impl BanningTransactionQueue {
 
 			// Check recipient
 			if let Action::Call(recipient) = transaction.action {
-				let count = self.recipients_bans.direct().get(&recipient).map(|v| v.get()).unwrap_or(0);
+				let count = self.recipients_bans.direct().get(&recipient).cloned().unwrap_or(0);
 				if count > threshold {
 					debug!(target: "txqueue", "Ignoring transaction {:?} because recipient is banned.", transaction.hash());
 					return Err(Error::Transaction(TransactionError::RecipientBanned));
@@ -104,8 +106,8 @@ impl BanningTransactionQueue {
 
 			// Check code
 			if let Action::Create = transaction.action {
-				let code_hash = transaction.data.sha3();
-				let count = self.codes_bans.direct().get(&code_hash).map(|v| v.get()).unwrap_or(0);
+				let code_hash = keccak(&transaction.data);
+				let count = self.codes_bans.direct().get(&code_hash).cloned().unwrap_or(0);
 				if count > threshold {
 					debug!(target: "txqueue", "Ignoring transaction {:?} because code is banned.", transaction.hash());
 					return Err(Error::Transaction(TransactionError::CodeBanned));
@@ -132,7 +134,7 @@ impl BanningTransactionQueue {
 						self.ban_recipient(recipient)
 					},
 					Action::Create => {
-						self.ban_codehash(transaction.data.sha3())
+						self.ban_codehash(keccak(&transaction.data))
 					},
 				};
 				sender_banned || recipient_or_code_banned
@@ -147,9 +149,9 @@ impl BanningTransactionQueue {
 	/// queue.
 	fn ban_sender(&mut self, address: Address) -> bool {
 		let count = {
-			let mut count = self.senders_bans.entry(address).or_insert_with(|| Cell::new(0));
-			*count.get_mut() = count.get().saturating_add(1);
-			count.get()
+			let count = self.senders_bans.entry(address).or_insert_with(|| 0);
+			*count = count.saturating_add(1);
+			*count
 		};
 		match self.ban_threshold {
 			Threshold::BanAfter(threshold) if count > threshold => {
@@ -167,9 +169,9 @@ impl BanningTransactionQueue {
 	/// Returns true if bans threshold has been reached.
 	fn ban_recipient(&mut self, address: Address) -> bool {
 		let count = {
-			let mut count = self.recipients_bans.entry(address).or_insert_with(|| Cell::new(0));
-			*count.get_mut() = count.get().saturating_add(1);
-			count.get()
+			let count = self.recipients_bans.entry(address).or_insert_with(|| 0);
+			*count = count.saturating_add(1);
+			*count
 		};
 		match self.ban_threshold {
 			// TODO [ToDr] Consider removing other transactions to the same recipient from the queue?
@@ -183,12 +185,12 @@ impl BanningTransactionQueue {
 	/// If bans threshold is reached all subsequent transactions to contracts with this codehash will be rejected.
 	/// Returns true if bans threshold has been reached.
 	fn ban_codehash(&mut self, code_hash: H256) -> bool {
-		let mut count = self.codes_bans.entry(code_hash).or_insert_with(|| Cell::new(0));
-		*count.get_mut() = count.get().saturating_add(1);
+		let count = self.codes_bans.entry(code_hash).or_insert_with(|| 0);
+		*count = count.saturating_add(1);
 
 		match self.ban_threshold {
 			// TODO [ToDr] Consider removing other transactions with the same code from the queue?
-			Threshold::BanAfter(threshold) if count.get() > threshold => true,
+			Threshold::BanAfter(threshold) if *count > threshold => true,
 			_ => false,
 		}
 	}
@@ -210,13 +212,16 @@ impl DerefMut for BanningTransactionQueue {
 #[cfg(test)]
 mod tests {
 	use std::time::Duration;
+	use rustc_hex::FromHex;
+	use hash::keccak;
 	use super::{BanningTransactionQueue, Threshold};
 	use ethkey::{Random, Generator};
 	use transaction::{Transaction, SignedTransaction, Action};
 	use error::{Error, TransactionError};
 	use client::TransactionImportResult;
 	use miner::{TransactionQueue, TransactionOrigin};
-	use util::{Uint, U256, Address, FromHex, Hashable};
+	use bigint::prelude::U256;
+	use util::Address;
 	use miner::transaction_queue::test::DummyTransactionDetailsProvider;
 
 	fn queue() -> BanningTransactionQueue {
@@ -310,7 +315,7 @@ mod tests {
 	fn should_not_accept_transactions_with_banned_code() {
 		// given
 		let tx = transaction(Action::Create);
-		let codehash = tx.data.sha3();
+		let codehash = keccak(&tx.data);
 		let mut txq = queue();
 		// Banlist once (threshold not reached)
 		let banlist1 = txq.ban_codehash(codehash);

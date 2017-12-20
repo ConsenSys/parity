@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -65,10 +65,10 @@ pub fn main() {
 		StratumServer::start(
 			&SocketAddr::new(
 				IpAddr::from_str(&service_config.listen_addr)
-					.unwrap_or_else(|e|
+					.unwrap_or_else(|e| {
 						println!("Fatal: invalid listen address: '{}' ({:?})", &service_config.listen_addr, e);
 						std::process::exit(1)
-					),
+					}),
 				service_config.port,
 			),
 			job_dispatcher.service().clone(),

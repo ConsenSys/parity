@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,7 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::*;
+use std::collections::HashMap;
+use std::sync::Arc;
+use hash::keccak;
+use bigint::hash::H256;
+use parking_lot::Mutex;
+use bytes::Bytes;
 use ethcore::snapshot::{SnapshotService, ManifestData, RestorationStatus};
 use ethcore::header::BlockNumber;
 use ethcore::client::{EachBlockWith};
@@ -24,7 +29,6 @@ use SyncConfig;
 pub struct TestSnapshotService {
 	manifest: Option<ManifestData>,
 	chunks: HashMap<H256, Bytes>,
-	canon_hashes: Mutex<HashMap<u64, H256>>,
 
 	restoration_manifest: Mutex<Option<ManifestData>>,
 	state_restoration_chunks: Mutex<HashMap<H256, Bytes>>,
@@ -36,7 +40,6 @@ impl TestSnapshotService {
 		TestSnapshotService {
 			manifest: None,
 			chunks: HashMap::new(),
-			canon_hashes: Mutex::new(HashMap::new()),
 			restoration_manifest: Mutex::new(None),
 			state_restoration_chunks: Mutex::new(HashMap::new()),
 			block_restoration_chunks: Mutex::new(HashMap::new()),
@@ -49,18 +52,18 @@ impl TestSnapshotService {
 		let state_chunks: Vec<Bytes> = (0..num_state_chunks).map(|_| H256::random().to_vec()).collect();
 		let block_chunks: Vec<Bytes> = (0..num_block_chunks).map(|_| H256::random().to_vec()).collect();
 		let manifest = ManifestData {
-			state_hashes: state_chunks.iter().map(|data| data.sha3()).collect(),
-			block_hashes: block_chunks.iter().map(|data| data.sha3()).collect(),
+			version: 2,
+			state_hashes: state_chunks.iter().map(|data| keccak(data)).collect(),
+			block_hashes: block_chunks.iter().map(|data| keccak(data)).collect(),
 			state_root: H256::new(),
 			block_number: block_number,
 			block_hash: block_hash,
 		};
-		let mut chunks: HashMap<H256, Bytes> = state_chunks.into_iter().map(|data| (data.sha3(), data)).collect();
-		chunks.extend(block_chunks.into_iter().map(|data| (data.sha3(), data)));
+		let mut chunks: HashMap<H256, Bytes> = state_chunks.into_iter().map(|data| (keccak(&data), data)).collect();
+		chunks.extend(block_chunks.into_iter().map(|data| (keccak(&data), data)));
 		TestSnapshotService {
 			manifest: Some(manifest),
 			chunks: chunks,
-			canon_hashes: Mutex::new(HashMap::new()),
 			restoration_manifest: Mutex::new(None),
 			state_restoration_chunks: Mutex::new(HashMap::new()),
 			block_restoration_chunks: Mutex::new(HashMap::new()),
@@ -71,6 +74,10 @@ impl TestSnapshotService {
 impl SnapshotService for TestSnapshotService {
 	fn manifest(&self) -> Option<ManifestData> {
 		self.manifest.as_ref().cloned()
+	}
+
+	fn supported_versions(&self) -> Option<(u64, u64)> {
+		Some((1, 2))
 	}
 
 	fn chunk(&self, hash: H256) -> Option<Bytes> {
@@ -113,10 +120,6 @@ impl SnapshotService for TestSnapshotService {
 		if self.restoration_manifest.lock().as_ref().map_or(false, |m| m.block_hashes.iter().any(|h| h == &hash)) {
 			self.block_restoration_chunks.lock().insert(hash, chunk);
 		}
-	}
-
-	fn provide_canon_hashes(&self, hashes: &[(u64, H256)]) {
-		self.canon_hashes.lock().extend(hashes.iter().cloned());
 	}
 }
 

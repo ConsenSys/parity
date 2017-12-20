@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -91,7 +91,7 @@ impl<Row, Col, Val> Table<Row, Col, Val>
 			if let None = row_map {
 				return None;
 			}
-			let mut row_map = row_map.unwrap();
+			let row_map = row_map.unwrap();
 			let val = row_map.remove(col);
 			(val, row_map.is_empty())
 		};
@@ -247,7 +247,7 @@ mod test {
 
 		// when
 		{
-			let mut row = table.row_mut(&1).unwrap();
+			let row = table.row_mut(&1).unwrap();
 			row.remove(&1);
 			row.remove(&2);
 		}

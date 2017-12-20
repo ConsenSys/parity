@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -18,7 +18,10 @@
 /// Blockchain downloader
 ///
 
-use util::*;
+use std::collections::{HashSet, VecDeque};
+use std::cmp;
+use heapsize::HeapSizeOf;
+use bigint::hash::H256;
 use rlp::*;
 use ethcore::views::{BlockView};
 use ethcore::header::{BlockNumber, Header as BlockHeader};
@@ -29,7 +32,7 @@ use sync_io::SyncIo;
 use blocks::BlockCollection;
 
 const MAX_HEADERS_TO_REQUEST: usize = 128;
-const MAX_BODIES_TO_REQUEST: usize = 64;
+const MAX_BODIES_TO_REQUEST: usize = 32;
 const MAX_RECEPITS_TO_REQUEST: usize = 128;
 const SUBCHAIN_SIZE: u64 = 256;
 const MAX_ROUND_PARENTS: usize = 16;
@@ -214,7 +217,7 @@ impl BlockDownloader {
 
 	/// Add new block headers.
 	pub fn import_headers(&mut self, io: &mut SyncIo, r: &UntrustedRlp, expected_hash: Option<H256>) -> Result<DownloadAction, BlockDownloaderImportError> {
-		let item_count = r.item_count();
+		let item_count = r.item_count().unwrap_or(0);
 		if self.state == State::Idle {
 			trace!(target: "sync", "Ignored unexpected block headers");
 			return Ok(DownloadAction::None)
@@ -265,7 +268,7 @@ impl BlockDownloader {
 				BlockStatus::Bad => {
 					return Err(BlockDownloaderImportError::Invalid);
 				},
-				BlockStatus::Unknown => {
+				BlockStatus::Unknown | BlockStatus::Pending => {
 					headers.push(hdr.as_raw().to_vec());
 					hashes.push(hash);
 				}
@@ -314,7 +317,7 @@ impl BlockDownloader {
 
 	/// Called by peer once it has new block bodies
 	pub fn import_bodies(&mut self, _io: &mut SyncIo, r: &UntrustedRlp) -> Result<(), BlockDownloaderImportError> {
-		let item_count = r.item_count();
+		let item_count = r.item_count().unwrap_or(0);
 		if item_count == 0 {
 			return Err(BlockDownloaderImportError::Useless);
 		}
@@ -340,7 +343,7 @@ impl BlockDownloader {
 
 	/// Called by peer once it has new block bodies
 	pub fn import_receipts(&mut self, _io: &mut SyncIo, r: &UntrustedRlp) -> Result<(), BlockDownloaderImportError> {
-		let item_count = r.item_count();
+		let item_count = r.item_count().unwrap_or(0);
 		if item_count == 0 {
 			return Err(BlockDownloaderImportError::Useless);
 		}
@@ -386,7 +389,7 @@ impl BlockDownloader {
 						debug!(target: "sync", "Could not revert to previous ancient block, last: {} ({})", start, start_hash);
 						self.reset();
 					} else {
-						let n = start - min(self.retract_step, start);
+						let n = start - cmp::min(self.retract_step, start);
 						self.retract_step *= 2;
 						match io.chain().block_hash(BlockId::Number(n)) {
 							Some(h) => {
@@ -476,7 +479,7 @@ impl BlockDownloader {
 			let receipts = block_and_receipts.receipts;
 			let (h, number, parent) = {
 				let header = BlockView::new(&block).header_view();
-				(header.sha3(), header.number(), header.parent_hash())
+				(header.hash(), header.number(), header.parent_hash())
 			};
 
 			// Perform basic block verification

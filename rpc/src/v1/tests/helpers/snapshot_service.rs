@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,8 +16,9 @@
 
 use ethcore::snapshot::{ManifestData, RestorationStatus, SnapshotService};
 
-use util::{Bytes, Mutex};
-use util::hash::H256;
+use bytes::Bytes;
+use bigint::hash::H256;
+use parking_lot::Mutex;
 
 /// Mocked snapshot service (used for sync info extensions).
 pub struct TestSnapshotService {
@@ -41,11 +42,11 @@ impl TestSnapshotService {
 
 impl SnapshotService for TestSnapshotService {
 	fn manifest(&self) -> Option<ManifestData> { None }
+	fn supported_versions(&self) -> Option<(u64, u64)> { None }
 	fn chunk(&self, _hash: H256) -> Option<Bytes> { None }
 	fn status(&self) -> RestorationStatus { self.status.lock().clone() }
 	fn begin_restore(&self, _manifest: ManifestData) { }
 	fn abort_restore(&self) { }
 	fn restore_state_chunk(&self, _hash: H256, _chunk: Bytes) { }
 	fn restore_block_chunk(&self, _hash: H256, _chunk: Bytes) { }
-	fn provide_canon_hashes(&self, _hashes: &[(u64, H256)]) { }
 }

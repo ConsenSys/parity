@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -25,7 +25,7 @@ use std::io::{Read, Write};
 use std::path::{PathBuf, Path};
 use dir::{DatabaseDirectories, default_data_path};
 use helpers::replace_home;
-use util::journaldb::Algorithm;
+use journaldb::Algorithm;
 
 #[cfg_attr(feature="dev", allow(enum_variant_names))]
 #[derive(Debug)]

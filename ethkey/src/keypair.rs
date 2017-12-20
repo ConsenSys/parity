@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 
 use std::fmt;
 use secp256k1::key;
-use rustc_serialize::hex::ToHex;
+use rustc_hex::ToHex;
 use keccak::Keccak256;
 use super::{Secret, Public, Address, SECP256K1, Error};
 
@@ -27,6 +27,7 @@ pub fn public_to_address(public: &Public) -> Address {
 	result
 }
 
+#[derive(Debug, Clone, PartialEq)]
 /// secp256k1 key pair
 pub struct KeyPair {
 	secret: Secret,
@@ -61,7 +62,7 @@ impl KeyPair {
 	}
 
 	pub fn from_secret_slice(slice: &[u8]) -> Result<KeyPair, Error> {
-		Self::from_secret(Secret::from_slice(slice)?)
+		Self::from_secret(Secret::from_unsafe_slice(slice)?)
 	}
 
 	pub fn from_keypair(sec: key::SecretKey, publ: key::PublicKey) -> Self {

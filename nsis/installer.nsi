@@ -4,21 +4,21 @@
 !define WND_TITLE "Parity"
 !define WAIT_MS 5000
 !define SYNC_TERM 0x00100001
-  
+
 !define APPNAME "Parity"
-!define COMPANYNAME "Ethcore"
+!define COMPANYNAME "Parity"
 !define DESCRIPTION "Fast, light, robust Ethereum implementation"
 !define VERSIONMAJOR 1
-!define VERSIONMINOR 6
+!define VERSIONMINOR 9
 !define VERSIONBUILD 0
-!define ARGS "--warp"
-!define FIRST_START_ARGS "ui --warp --mode=passive"
+!define ARGS ""
+!define FIRST_START_ARGS "--mode=passive ui"
 
 !addplugindir .\
 
-!define HELPURL "https://github.com/ethcore/parity/wiki" # "Support Information" link
-!define UPDATEURL "https://github.com/ethcore/parity/releases" # "Product Updates" link
-!define ABOUTURL "https://github.com/ethcore/parity" # "Publisher" link
+!define HELPURL "https://github.com/paritytech/parity/wiki" # "Support Information" link
+!define UPDATEURL "https://github.com/paritytech/parity/releases" # "Product Updates" link
+!define ABOUTURL "https://github.com/paritytech/parity" # "Publisher" link
 !define INSTALLSIZE 26120
 
 !define termMsg "Installer cannot stop running ${WND_TITLE}.$\nDo you want to terminate process?"
@@ -90,7 +90,7 @@ section "install"
 	# Files added here should be removed by the uninstaller (see section "uninstall")
 	file /oname=parity.exe ..\target\release\parity.exe
 	file /oname=ptray.exe ..\windows\ptray\x64\Release\ptray.exe
-	
+
 	file "logo.ico"
 	file vc_redist.x64.exe
 
@@ -116,7 +116,6 @@ section "install"
 	# Firewall exception rules
 	SimpleFC::AdvAddRule "Parity incoming peers (TCP:30303)" ""  6 1 1 2147483647 1 "$INSTDIR\parity.exe" "" "" "Parity" 30303    "" "" ""
 	SimpleFC::AdvAddRule "Parity outgoing peers (TCP:30303)" ""  6 2 1 2147483647 1 "$INSTDIR\parity.exe" "" "" "Parity"    "" 30303 "" ""
-	SimpleFC::AdvAddRule       "Parity web queries (TCP:80)" ""  6 2 1 2147483647 1 "$INSTDIR\parity.exe" "" "" "Parity"    ""    80 "" ""
 	SimpleFC::AdvAddRule  "Parity UDP discovery (UDP:30303)" "" 17 2 1 2147483647 1 "$INSTDIR\parity.exe" "" "" "Parity"    "" 30303 "" ""
 
 	# Registry information for add/remove programs
@@ -149,7 +148,7 @@ function un.onInit
 	SetShellVarContext all
 
 	#Verify the uninstaller - last chance to back out
-	MessageBox MB_OKCANCEL "Permanantly remove ${APPNAME}?" IDOK next
+	MessageBox MB_OKCANCEL "Permanently remove ${APPNAME}?" IDOK next
 		Abort
 
 	next:

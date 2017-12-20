@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -18,15 +18,14 @@ use std::sync::Arc;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use hash::{keccak, write_keccak};
 use mio::{Token, Ready, PollOpt};
 use mio::deprecated::{Handler, EventLoop, TryRead, TryWrite};
 use mio::tcp::*;
-use util::hash::*;
-use util::sha3::*;
-use util::bytes::*;
+use bigint::hash::*;
+use ethcore_bytes::*;
 use rlp::*;
 use std::io::{self, Cursor, Read, Write};
-use error::*;
 use io::{IoContext, StreamToken};
 use handshake::Handshake;
 use stats::NetworkStats;
@@ -35,11 +34,13 @@ use rcrypto::aessafe::*;
 use rcrypto::symmetriccipher::*;
 use rcrypto::buffer::*;
 use tiny_keccak::Keccak;
-use bytes::{Buf, MutBuf};
+use bytes::{Buf, BufMut};
 use crypto;
+use error::{Error, ErrorKind};
 
 const ENCRYPTED_HEADER_LEN: usize = 32;
 const RECIEVE_PAYLOAD_TIMEOUT: u64 = 30000;
+pub const MAX_PAYLOAD_SIZE: usize = (1 << 24) - 1;
 
 pub trait GenericSocket : Read + Write {
 }
@@ -83,9 +84,9 @@ impl<Socket: GenericSocket> GenericConnection<Socket> {
 		let sock_ref = <Socket as Read>::by_ref(&mut self.socket);
 		loop {
 			let max = self.rec_size - self.rec_buf.len();
-			match sock_ref.take(max as u64).try_read(unsafe { self.rec_buf.mut_bytes() }) {
+			match sock_ref.take(max as u64).try_read(unsafe { self.rec_buf.bytes_mut() }) {
 				Ok(Some(size)) if size != 0  => {
-					unsafe { self.rec_buf.advance(size); }
+					unsafe { self.rec_buf.advance_mut(size); }
 					self.stats.inc_recv(size);
 					trace!(target:"network", "{}: Read {} of {} bytes", self.token, self.rec_buf.len(), self.rec_size);
 					if self.rec_size != 0 && self.rec_buf.len() == self.rec_size {
@@ -124,7 +125,7 @@ impl<Socket: GenericSocket> GenericConnection<Socket> {
 	}
 
 	/// Writable IO handler. Called when the socket is ready to send.
-	pub fn writable<Message>(&mut self, io: &IoContext<Message>) -> Result<WriteStatus, NetworkError> where Message: Send + Clone + Sync + 'static {
+	pub fn writable<Message>(&mut self, io: &IoContext<Message>) -> Result<WriteStatus, Error> where Message: Send + Clone + Sync + 'static {
 		{
 			let buf = match self.send_queue.front_mut() {
 				Some(buf) => buf,
@@ -136,8 +137,8 @@ impl<Socket: GenericSocket> GenericConnection<Socket> {
 				warn!(target:"net", "Unexpected connection data");
 				return Ok(WriteStatus::Complete)
 			}
-			let buf = buf as &mut Buf;
-			match self.socket.try_write(buf.bytes()) {
+
+			match self.socket.try_write(Buf::bytes(&buf)) {
 				Ok(Some(size)) if (pos + size) < send_size => {
 					buf.advance(size);
 					self.stats.inc_send(size);
@@ -299,7 +300,7 @@ pub struct EncryptedConnection {
 
 impl EncryptedConnection {
 	/// Create an encrypted connection out of the handshake.
-	pub fn new(handshake: &mut Handshake) -> Result<EncryptedConnection, NetworkError> {
+	pub fn new(handshake: &mut Handshake) -> Result<EncryptedConnection, Error> {
 		let shared = crypto::ecdh::agree(handshake.ecdhe.secret(), &handshake.remote_ephemeral)?;
 		let mut nonce_material = H512::new();
 		if handshake.originated {
@@ -312,16 +313,16 @@ impl EncryptedConnection {
 		}
 		let mut key_material = H512::new();
 		shared.copy_to(&mut key_material[0..32]);
-		nonce_material.sha3_into(&mut key_material[32..64]);
-		key_material.sha3().copy_to(&mut key_material[32..64]);
-		key_material.sha3().copy_to(&mut key_material[32..64]);
+		write_keccak(&nonce_material, &mut key_material[32..64]);
+		keccak(&key_material).copy_to(&mut key_material[32..64]);
+		keccak(&key_material).copy_to(&mut key_material[32..64]);
 
 		let iv = vec![0u8; 16];
 		let encoder = CtrMode::new(AesSafe256Encryptor::new(&key_material[32..64]), iv);
 		let iv = vec![0u8; 16];
 		let decoder = CtrMode::new(AesSafe256Encryptor::new(&key_material[32..64]), iv);
 
-		key_material.sha3().copy_to(&mut key_material[32..64]);
+		keccak(&key_material).copy_to(&mut key_material[32..64]);
 		let mac_encoder = EcbEncryptor::new(AesSafe256Encryptor::new(&key_material[32..64]), NoPadding);
 
 		let mut egress_mac = Keccak::new_keccak256();
@@ -345,16 +346,19 @@ impl EncryptedConnection {
 			ingress_mac: ingress_mac,
 			read_state: EncryptedConnectionState::Header,
 			protocol_id: 0,
-			payload_len: 0
+			payload_len: 0,
 		};
 		enc.connection.expect(ENCRYPTED_HEADER_LEN);
 		Ok(enc)
 	}
 
 	/// Send a packet
-	pub fn send_packet<Message>(&mut self, io: &IoContext<Message>, payload: &[u8]) -> Result<(), NetworkError> where Message: Send + Clone + Sync + 'static {
+	pub fn send_packet<Message>(&mut self, io: &IoContext<Message>, payload: &[u8]) -> Result<(), Error> where Message: Send + Clone + Sync + 'static {
 		let mut header = RlpStream::new();
-		let len = payload.len() as usize;
+		let len = payload.len();
+		if len > MAX_PAYLOAD_SIZE {
+			bail!(ErrorKind::OversizedPacket);
+		}
 		header.append_raw(&[(len >> 16) as u8, (len >> 8) as u8, len as u8], 1);
 		header.append_raw(&[0xc2u8, 0x80u8, 0x80u8], 1);
 		//TODO: ger rid of vectors here
@@ -379,16 +383,16 @@ impl EncryptedConnection {
 	}
 
 	/// Decrypt and authenticate an incoming packet header. Prepare for receiving payload.
-	fn read_header(&mut self, header: &[u8]) -> Result<(), NetworkError> {
+	fn read_header(&mut self, header: &[u8]) -> Result<(), Error> {
 		if header.len() != ENCRYPTED_HEADER_LEN {
-			return Err(From::from(NetworkError::Auth));
+			return Err(ErrorKind::Auth.into());
 		}
 		EncryptedConnection::update_mac(&mut self.ingress_mac, &mut self.mac_encoder, &header[0..16]);
 		let mac = &header[16..];
 		let mut expected = H256::new();
 		self.ingress_mac.clone().finalize(&mut expected);
 		if mac != &expected[0..16] {
-			return Err(From::from(NetworkError::Auth));
+			return Err(ErrorKind::Auth.into());
 		}
 
 		let mut hdec = H128::new();
@@ -409,11 +413,11 @@ impl EncryptedConnection {
 	}
 
 	/// Decrypt and authenticate packet payload.
-	fn read_payload(&mut self, payload: &[u8]) -> Result<Packet, NetworkError> {
+	fn read_payload(&mut self, payload: &[u8]) -> Result<Packet, Error> {
 		let padding = (16 - (self.payload_len  % 16)) % 16;
 		let full_length = self.payload_len + padding + 16;
 		if payload.len() != full_length {
-			return Err(From::from(NetworkError::Auth));
+			return Err(ErrorKind::Auth.into());
 		}
 		self.ingress_mac.update(&payload[0..payload.len() - 16]);
 		EncryptedConnection::update_mac(&mut self.ingress_mac, &mut self.mac_encoder, &[0u8; 0]);
@@ -421,7 +425,7 @@ impl EncryptedConnection {
 		let mut expected = H128::new();
 		self.ingress_mac.clone().finalize(&mut expected);
 		if mac != &expected[..] {
-			return Err(From::from(NetworkError::Auth));
+			return Err(ErrorKind::Auth.into());
 		}
 
 		let mut packet = vec![0u8; self.payload_len];
@@ -447,7 +451,7 @@ impl EncryptedConnection {
 	}
 
 	/// Readable IO handler. Tracker receive status and returns decoded packet if avaialable.
-	pub fn readable<Message>(&mut self, io: &IoContext<Message>) -> Result<Option<Packet>, NetworkError> where Message: Send + Clone + Sync + 'static {
+	pub fn readable<Message>(&mut self, io: &IoContext<Message>) -> Result<Option<Packet>, Error> where Message: Send + Clone + Sync + 'static {
 		io.clear_timer(self.connection.token)?;
 		if let EncryptedConnectionState::Header = self.read_state {
 			if let Some(data) = self.connection.readable()? {
@@ -470,7 +474,7 @@ impl EncryptedConnection {
 	}
 
 	/// Writable IO handler. Processes send queeue.
-	pub fn writable<Message>(&mut self, io: &IoContext<Message>) -> Result<(), NetworkError> where Message: Send + Clone + Sync + 'static {
+	pub fn writable<Message>(&mut self, io: &IoContext<Message>) -> Result<(), Error> where Message: Send + Clone + Sync + 'static {
 		self.connection.writable(io)?;
 		Ok(())
 	}
@@ -478,7 +482,7 @@ impl EncryptedConnection {
 
 #[test]
 pub fn test_encryption() {
-	use util::hash::*;
+	use bigint::hash::*;
 	use std::str::FromStr;
 	let key = H256::from_str("2212767d793a7a3d66f869ae324dd11bd17044b82c9f463b8a541a4d089efec5").unwrap();
 	let before = H128::from_str("12532abaec065082a3cf1da7d0136f15").unwrap();
@@ -507,8 +511,8 @@ mod tests {
 	use std::io::{Read, Write, Error, Cursor, ErrorKind};
 	use mio::{Ready};
 	use std::collections::VecDeque;
-	use util::bytes::Bytes;
-	use devtools::*;
+	use ethcore_bytes::Bytes;
+	use devtools::TestSocket;
 	use io::*;
 
 	impl GenericSocket for TestSocket {}

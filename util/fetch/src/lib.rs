@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,17 +16,19 @@
 
 //! A service to fetch any HTTP / HTTPS content.
 
+#![warn(missing_docs)]
+
 #[macro_use]
 extern crate log;
 
 extern crate futures;
 extern crate futures_cpupool;
+extern crate parking_lot;
 extern crate reqwest;
 
-pub extern crate mime;
 pub mod client;
 
 pub use self::reqwest::StatusCode;
-pub use self::mime::Mime;
+pub use self::reqwest::mime::Mime;
 pub use self::client::{Client, Fetch, Error, Response, Abort};
 

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -20,9 +20,10 @@ use std::io::{Read, Write, Error as IoError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::fmt::{Display, Formatter, Error as FmtError};
 use std::sync::Arc;
-use util::journaldb::Algorithm;
-use util::migration::{Manager as MigrationManager, Config as MigrationConfig, Error as MigrationError, Migration};
-use util::kvdb::{CompactionProfile, Database, DatabaseConfig};
+use journaldb::Algorithm;
+use migr::{self, Manager as MigrationManager, Config as MigrationConfig, Migration};
+use kvdb;
+use kvdb_rocksdb::{CompactionProfile, Database, DatabaseConfig};
 use ethcore::migrations;
 use ethcore::db;
 use ethcore::migrations::Extract;
@@ -30,7 +31,7 @@ use ethcore::migrations::Extract;
 /// Database is assumed to be at default version, when no version file is found.
 const DEFAULT_VERSION: u32 = 5;
 /// Current version of database models.
-const CURRENT_VERSION: u32 = 10;
+const CURRENT_VERSION: u32 = 12;
 /// First version of the consolidated database.
 const CONSOLIDATION_VERSION: u32 = 9;
 /// Defines how many items are migrated to the new version of database at once.
@@ -52,7 +53,7 @@ pub enum Error {
 	/// Migration unexpectadly failed.
 	MigrationFailed,
 	/// Internal migration error.
-	Internal(MigrationError),
+	Internal(migr::Error),
 	/// Migration was completed succesfully,
 	/// but there was a problem with io.
 	Io(IoError),
@@ -80,11 +81,11 @@ impl From<IoError> for Error {
 	}
 }
 
-impl From<MigrationError> for Error {
-	fn from(err: MigrationError) -> Self {
-		match err {
-			MigrationError::Io(e) => Error::Io(e),
-			_ => Error::Internal(err),
+impl From<migr::Error> for Error {
+	fn from(err: migr::Error) -> Self {
+		match err.into() {
+			migr::ErrorKind::Io(e) => Error::Io(e),
+			err => Error::Internal(err.into()),
 		}
 	}
 }
@@ -146,6 +147,8 @@ pub fn default_migration_settings(compaction_profile: &CompactionProfile) -> Mig
 fn consolidated_database_migrations(compaction_profile: &CompactionProfile) -> Result<MigrationManager, Error> {
 	let mut manager = MigrationManager::new(default_migration_settings(compaction_profile));
 	manager.add_migration(migrations::ToV10::new()).map_err(|_| Error::MigrationImpossible)?;
+	manager.add_migration(migrations::TO_V11).map_err(|_| Error::MigrationImpossible)?;
+	manager.add_migration(migrations::TO_V12).map_err(|_| Error::MigrationImpossible)?;
 	Ok(manager)
 }
 
@@ -156,7 +159,7 @@ fn consolidate_database(
 	column: Option<u32>,
 	extract: Extract,
 	compaction_profile: &CompactionProfile) -> Result<(), Error> {
-	fn db_error(e: String) -> Error {
+	fn db_error(e: kvdb::Error) -> Error {
 		warn!("Cannot open Database for consolidation: {:?}", e);
 		Error::MigrationFailed
 	}
@@ -200,6 +203,10 @@ fn migrate_database(version: u32, db_path: PathBuf, mut migrations: MigrationMan
 	// migrate old database to the new one
 	let temp_path = migrations.execute(&db_path, version)?;
 
+	// completely in-place migration leads to the paths being equal.
+	// in that case, no need to shuffle directories.
+	if temp_path == db_path { return Ok(()) }
+
 	// create backup
 	fs::rename(&db_path, &backup_path)?;
 
@@ -211,9 +218,7 @@ fn migrate_database(version: u32, db_path: PathBuf, mut migrations: MigrationMan
 	}
 
 	// remove backup
-	fs::remove_dir_all(&backup_path)?;
-
-	Ok(())
+	fs::remove_dir_all(&backup_path).map_err(Into::into)
 }
 
 fn exists(path: &Path) -> bool {
@@ -277,9 +282,8 @@ pub fn migrate(path: &Path, pruning: Algorithm, compaction_profile: CompactionPr
 mod legacy {
 	use super::*;
 	use std::path::{Path, PathBuf};
-	use util::journaldb::Algorithm;
-	use util::migration::{Manager as MigrationManager};
-	use util::kvdb::CompactionProfile;
+	use migr::{Manager as MigrationManager};
+	use kvdb_rocksdb::CompactionProfile;
 	use ethcore::migrations;
 
 	/// Blocks database path.

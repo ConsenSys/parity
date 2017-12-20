@@ -1,29 +1,45 @@
 [package]
-description = "Ethcore jsonrpc"
-name = "ethcore-rpc"
-version = "1.6.0"
+description = "Parity JSON-RPC servers."
+name = "parity-rpc"
+version = "1.9.0"
 license = "GPL-3.0"
 authors = ["Parity Technologies <admin@parity.io>"]
-build = "build.rs"
 
 [lib]
 
 [dependencies]
-futures = "0.1"
+ansi_term = "0.9"
+cid = "0.2"
+futures = "0.1.6"
+futures-cpupool = "0.1"
 log = "0.3"
-semver = "0.5"
-serde = "0.8"
-serde_json = "0.8"
-rustc-serialize = "0.3"
+multihash ="0.6"
+order-stat = "0.1"
+parking_lot = "0.4"
+rand = "0.3"
+rust-crypto = "0.2"
+rustc-hex = "1.0"
+semver = "0.6"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
 time = "0.1"
-transient-hashmap = "0.1"
-jsonrpc-core = { git = "https://github.com/ethcore/jsonrpc.git" }
-jsonrpc-http-server = { git = "https://github.com/ethcore/jsonrpc.git" }
-jsonrpc-ipc-server = { git = "https://github.com/ethcore/jsonrpc.git" }
-jsonrpc-macros = { git = "https://github.com/ethcore/jsonrpc.git" }
+tiny-keccak = "1.3"
+tokio-timer = "0.1"
+transient-hashmap = "0.4"
+itertools = "0.5"
+
+jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+jsonrpc-http-server = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+jsonrpc-ws-server = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+jsonrpc-ipc-server = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+jsonrpc-pubsub = { git = "https://github.com/paritytech/jsonrpc.git", branch = "parity-1.9" }
+
 ethcore-io = { path = "../util/io" }
-ethcore-ipc = { path = "../ipc/rpc" }
 ethcore-util = { path = "../util" }
+ethcore-bigint = { path = "../util/bigint" }
+ethcore-bytes = { path = "../util/bytes" }
 ethcore = { path = "../ethcore" }
 ethcrypto = { path = "../ethcrypto" }
 ethkey = { path = "../ethkey" }
@@ -32,17 +48,25 @@ ethash = { path = "../ethash" }
 ethsync = { path = "../sync" }
 ethjson = { path = "../json" }
 ethcore-devtools = { path = "../devtools" }
+ethcore-light = { path = "../ethcore/light" }
+ethcore-logger = { path = "../logger" }
+fetch = { path = "../util/fetch" }
+node-health = { path = "../dapps/node-health" }
+parity-reactor = { path = "../util/reactor" }
 parity-updater = { path = "../updater" }
 rlp = { path = "../util/rlp" }
-fetch = { path = "../util/fetch" }
-parity-reactor = { path = "../util/reactor" }
-serde_macros = { version = "0.8", optional = true }
+stats = { path = "../util/stats" }
+vm = { path = "../ethcore/vm" }
+keccak-hash = { path = "../util/hash" }
+hardware-wallet = { path = "../hw" }
+
 clippy = { version = "0.0.103", optional = true}
 
-[build-dependencies]
-serde_codegen = { version = "0.8", optional = true }
+[dev-dependencies]
+pretty_assertions = "0.1"
+macros = { path = "../util/macros" }
+ethcore-network = { path = "../util/network" }
+kvdb-memorydb = { path = "../util/kvdb-memorydb" }
 
 [features]
-default = ["serde_codegen"]
-nightly = ["serde_macros"]
 dev = ["clippy", "ethcore/dev", "ethcore-util/dev", "ethsync/dev"]

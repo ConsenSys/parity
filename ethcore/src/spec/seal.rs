@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 //! Spec seal.
 
 use rlp::*;
-use util::hash::{H64, H256, H520};
+use bigint::hash::{H64, H256, H520};
 use ethjson;
 
 /// Classic ethereum seal.
@@ -64,9 +64,12 @@ impl Into<Generic> for AuthorityRound {
 
 impl Into<Generic> for Tendermint {
 	fn into(self) -> Generic {
-		let mut s = RlpStream::new_list(3);
-		s.append(&self.round).append(&self.proposal).append(&self.precommits);
-		Generic(s.out())
+		let mut stream = RlpStream::new_list(3);
+		stream
+			.append(&self.round)
+			.append(&self.proposal)
+			.append_list(&self.precommits);
+		Generic(stream.out())
 	}
 }
 

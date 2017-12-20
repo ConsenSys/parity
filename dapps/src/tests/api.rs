@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -33,32 +33,9 @@ fn should_return_error() {
 	);
 
 	// then
-	assert_eq!(response.status, "HTTP/1.1 404 Not Found".to_owned());
-	assert_eq!(response.headers.get(3).unwrap(), "Content-Type: application/json");
+	response.assert_status("HTTP/1.1 404 Not Found");
+	response.assert_header("Content-Type", "application/json");
 	assert_eq!(response.body, format!("58\n{}\n0\n\n", r#"{"code":"404","title":"Not Found","detail":"Resource you requested has not been found."}"#));
-	assert_security_headers(&response.headers);
-}
-
-#[test]
-fn should_serve_apps() {
-	// given
-	let server = serve();
-
-	// when
-	let response = request(server,
-		"\
-			GET /api/apps HTTP/1.1\r\n\
-			Host: 127.0.0.1:8080\r\n\
-			Connection: close\r\n\
-			\r\n\
-			{}
-		"
-	);
-
-	// then
-	assert_eq!(response.status, "HTTP/1.1 200 OK".to_owned());
-	assert_eq!(response.headers.get(3).unwrap(), "Content-Type: application/json");
-	assert!(response.body.contains("Parity UI"), response.body);
 	assert_security_headers(&response.headers);
 }
 
@@ -72,6 +49,7 @@ fn should_handle_ping() {
 		"\
 			POST /api/ping HTTP/1.1\r\n\
 			Host: home.parity\r\n\
+			Content-Type: application/json\r\n\
 			Connection: close\r\n\
 			\r\n\
 			{}
@@ -79,8 +57,8 @@ fn should_handle_ping() {
 	);
 
 	// then
-	assert_eq!(response.status, "HTTP/1.1 200 OK".to_owned());
-	assert_eq!(response.headers.get(3).unwrap(), "Content-Type: application/json");
+	response.assert_status("HTTP/1.1 200 OK");
+	response.assert_header("Content-Type", "application/json");
 	assert_eq!(response.body, "0\n\n".to_owned());
 	assert_security_headers(&response.headers);
 }
@@ -102,59 +80,7 @@ fn should_try_to_resolve_dapp() {
 	);
 
 	// then
-	assert_eq!(response.status, "HTTP/1.1 404 Not Found".to_owned());
+	response.assert_status("HTTP/1.1 404 Not Found");
 	assert_eq!(registrar.calls.lock().len(), 2);
 	assert_security_headers(&response.headers);
-}
-
-#[test]
-fn should_return_signer_port_cors_headers() {
-	// given
-	let server = serve();
-
-	// when
-	let response = request(server,
-		"\
-			POST /api/ping HTTP/1.1\r\n\
-			Host: localhost:8080\r\n\
-			Origin: http://127.0.0.1:18180\r\n\
-			Connection: close\r\n\
-			\r\n\
-			{}
-		"
-	);
-
-	// then
-	assert_eq!(response.status, "HTTP/1.1 200 OK".to_owned());
-	assert!(
-		response.headers_raw.contains("Access-Control-Allow-Origin: http://127.0.0.1:18180"),
-		"CORS header for signer missing: {:?}",
-		response.headers
-	);
-}
-
-#[test]
-fn should_return_signer_port_cors_headers_for_home_parity() {
-	// given
-	let server = serve();
-
-	// when
-	let response = request(server,
-		"\
-			POST /api/ping HTTP/1.1\r\n\
-			Host: localhost:8080\r\n\
-			Origin: http://home.parity\r\n\
-			Connection: close\r\n\
-			\r\n\
-			{}
-		"
-	);
-
-	// then
-	assert_eq!(response.status, "HTTP/1.1 200 OK".to_owned());
-	assert!(
-		response.headers_raw.contains("Access-Control-Allow-Origin: http://home.parity"),
-		"CORS header for home.parity missing: {:?}",
-		response.headers
-	);
 }

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,173 +15,75 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 const webpack = require('webpack');
-const path = require('path');
-const fs = require('fs');
-// const HappyPack = require('happypack');
 
-const postcssImport = require('postcss-import');
-const postcssNested = require('postcss-nested');
-const postcssVars = require('postcss-simple-vars');
-const rucksack = require('rucksack-css');
-const CircularDependencyPlugin = require('circular-dependency-plugin');
-const ProgressBarPlugin = require('progress-bar-webpack-plugin');
+const HappyPack = require('happypack');
+const PackageJson = require('../package.json');
 
+const EMBED = process.env.EMBED;
 const ENV = process.env.NODE_ENV || 'development';
 const isProd = ENV === 'production';
+const UI_VERSION = PackageJson
+  .version
+  .split('.')
+  .map((part, index) => {
+    if (index !== 2) {
+      return part;
+    }
 
-function getBabelrc () {
-  const babelrc = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../.babelrc')));
-
-  const es2015Index = babelrc.presets.findIndex((p) => p === 'es2015');
-
-  // [ "es2015", { "modules": false } ]
-  babelrc.presets[es2015Index] = [ 'es2015', { modules: false } ];
-  babelrc['babelrc'] = false;
-
-  const BABEL_PRESET_ENV = process.env.BABEL_PRESET_ENV;
-  const npmStart = process.env.npm_lifecycle_event === 'start';
-  const npmStartApp = process.env.npm_lifecycle_event === 'start:app';
-
-  if (BABEL_PRESET_ENV && (npmStart || npmStartApp)) {
-    console.log('using babel-preset-env');
-
-    babelrc.presets = [
-      // 'es2017',
-      'stage-0', 'react',
-      [
-        'env',
-        {
-          targets: { browsers: ['last 2 Chrome versions'] },
-          modules: false,
-          loose: true,
-          useBuiltIns: true
-        }
-      ]
-    ];
-  }
-
-  return babelrc;
-}
+    return `${parseInt(part, 10) + 1}`;
+  })
+  .join('.');
 
 function getPlugins (_isProd = isProd) {
-  const postcss = [
-    postcssImport({
-      addDependencyTo: webpack
-    }),
-    postcssNested({}),
-    postcssVars({
-      unknown: function (node, name, result) {
-        node.warn(result, `Unknown variable ${name}`);
-      }
-    }),
-    rucksack({
-      autoprefixer: true
-    })
-  ];
-
   const plugins = [
-    new ProgressBarPlugin({
-      format: '[:msg] [:bar] ' + ':percent' + ' (:elapsed seconds)'
-    }),
-
-    // NB: HappyPack is not yet working with Webpack 2... (as of Nov. 26)
-
-    // new HappyPack({
-    //   id: 'css',
-    //   threads: 4,
-    //   loaders: [
-    //     'style-loader',
-    //     'css-loader?modules&sourceMap&importLoaders=1&localIdentName=[name]__[local]___[hash:base64:5]',
-    //     'postcss-loader'
-    //   ]
-    // }),
-
-    // new HappyPack({
-    //   id: 'js',
-    //   threads: 4,
-    //   loaders: _isProd ? ['babel'] : [
-    //     'react-hot-loader',
-    //     'babel-loader?cacheDirectory=true'
-    //   ]
-    // }),
-
-    // new HappyPack({
-    //   id: 'babel',
-    //   threads: 4,
-    //   loaders: ['babel-loader']
-    // }),
-
     new webpack.DefinePlugin({
       'process.env': {
+        EMBED: JSON.stringify(EMBED),
         NODE_ENV: JSON.stringify(ENV),
         RPC_ADDRESS: JSON.stringify(process.env.RPC_ADDRESS),
         PARITY_URL: JSON.stringify(process.env.PARITY_URL),
         DAPPS_URL: JSON.stringify(process.env.DAPPS_URL),
-        LOGGING: JSON.stringify(!isProd)
+        LOGGING: JSON.stringify(!isProd),
+        UI_VERSION: JSON.stringify(UI_VERSION)
       }
     }),
-
-    new webpack.LoaderOptionsPlugin({
-      minimize: isProd,
-      debug: !isProd,
-      options: {
-        context: path.join(__dirname, '../src'),
-        postcss: postcss,
-        babel: getBabelrc()
-      }
-    }),
-
-    new webpack.optimize.OccurrenceOrderPlugin(!_isProd),
-
-    new CircularDependencyPlugin({
-      exclude: /node_modules/,
-      failOnError: true
+    new HappyPack({
+      id: 'babel',
+      threads: 4,
+      loaders: ['babel-loader']
     })
   ];
 
   if (_isProd) {
-    plugins.push(new webpack.optimize.UglifyJsPlugin({
-      screwIe8: true,
-      compress: {
-        warnings: false
-      },
-      output: {
-        comments: false
-      }
-    }));
+    plugins.push(
+      new webpack.optimize.ModuleConcatenationPlugin(),
+      new webpack.optimize.UglifyJsPlugin({
+        sourceMap: true,
+        screwIe8: true,
+        compress: {
+          warnings: false
+        },
+        output: {
+          comments: false
+        }
+      })
+    );
   }
 
   return plugins;
 }
 
-function getDappsEntry () {
-  const DAPPS = require('../src/views/Dapps/builtin.json');
-
-  return DAPPS.filter((dapp) => !dapp.skipBuild).reduce((_entry, dapp) => {
-    _entry[dapp.url] = './dapps/' + dapp.url + '.js';
-    return _entry;
-  }, {});
-}
-
 function addProxies (app) {
   const proxy = require('http-proxy-middleware');
 
-  app.use(proxy((pathname, req) => {
-    return pathname === '/' && req.method === 'HEAD';
-  }, {
+  app.use('/api', proxy({
     target: 'http://127.0.0.1:8180',
     changeOrigin: true,
     autoRewrite: true
   }));
 
-  app.use('/api', proxy({
-    target: 'http://127.0.0.1:8080',
-    changeOrigin: true,
-    autoRewrite: true
-  }));
-
   app.use('/app', proxy({
-    target: 'http://127.0.0.1:8080',
+    target: 'http://127.0.0.1:8545',
     changeOrigin: true,
     pathRewrite: {
       '^/app': ''
@@ -197,14 +99,12 @@ function addProxies (app) {
   }));
 
   app.use('/rpc', proxy({
-    target: 'http://127.0.0.1:8080',
+    target: 'http://127.0.0.1:8545',
     changeOrigin: true
   }));
 }
 
 module.exports = {
-  getBabelrc: getBabelrc,
-  getPlugins: getPlugins,
-  dappsEntry: getDappsEntry(),
-  addProxies: addProxies
+  getPlugins,
+  addProxies
 };

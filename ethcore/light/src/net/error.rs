@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,10 +17,8 @@
 //! Defines error types and levels of punishment to use upon
 //! encountering.
 
-use rlp::DecoderError;
-use network::NetworkError;
-
 use std::fmt;
+use {rlp, network};
 
 /// Levels of punishment.
 ///
@@ -41,11 +39,11 @@ pub enum Punishment {
 #[derive(Debug)]
 pub enum Error {
 	/// An RLP decoding error.
-	Rlp(DecoderError),
+	Rlp(rlp::DecoderError),
 	/// A network error.
-	Network(NetworkError),
-	/// Out of buffer.
-	BufferEmpty,
+	Network(network::Error),
+	/// Out of credits.
+	NoCredits,
 	/// Unrecognized packet code.
 	UnrecognizedPacket(u8),
 	/// Unexpected handshake.
@@ -56,6 +54,8 @@ pub enum Error {
 	UnknownPeer,
 	/// Unsolicited response.
 	UnsolicitedResponse,
+	/// Bad back-reference in request.
+	BadBackReference,
 	/// Not a server.
 	NotServer,
 	/// Unsupported protocol version.
@@ -64,6 +64,8 @@ pub enum Error {
 	BadProtocolVersion,
 	/// Peer is overburdened.
 	Overburdened,
+	/// No handler kept the peer.
+	RejectedByHandlers,
 }
 
 impl Error {
@@ -72,28 +74,30 @@ impl Error {
 		match *self {
 			Error::Rlp(_) => Punishment::Disable,
 			Error::Network(_) => Punishment::None,
-			Error::BufferEmpty => Punishment::Disable,
+			Error::NoCredits => Punishment::Disable,
 			Error::UnrecognizedPacket(_) => Punishment::Disconnect,
 			Error::UnexpectedHandshake => Punishment::Disconnect,
 			Error::WrongNetwork => Punishment::Disable,
 			Error::UnknownPeer => Punishment::Disconnect,
 			Error::UnsolicitedResponse => Punishment::Disable,
+			Error::BadBackReference => Punishment::Disable,
 			Error::NotServer => Punishment::Disable,
 			Error::UnsupportedProtocolVersion(_) => Punishment::Disable,
 			Error::BadProtocolVersion => Punishment::Disable,
 			Error::Overburdened => Punishment::None,
+			Error::RejectedByHandlers => Punishment::Disconnect,
 		}
 	}
 }
 
-impl From<DecoderError> for Error {
-	fn from(err: DecoderError) -> Self {
+impl From<rlp::DecoderError> for Error {
+	fn from(err: rlp::DecoderError) -> Self {
 		Error::Rlp(err)
 	}
 }
 
-impl From<NetworkError> for Error {
-	fn from(err: NetworkError) -> Self {
+impl From<network::Error> for Error {
+	fn from(err: network::Error) -> Self {
 		Error::Network(err)
 	}
 }
@@ -103,16 +107,18 @@ impl fmt::Display for Error {
 		match *self {
 			Error::Rlp(ref err) => err.fmt(f),
 			Error::Network(ref err) => err.fmt(f),
-			Error::BufferEmpty => write!(f, "Out of buffer"),
+			Error::NoCredits => write!(f, "Out of request credits"),
 			Error::UnrecognizedPacket(code) => write!(f, "Unrecognized packet: 0x{:x}", code),
 			Error::UnexpectedHandshake => write!(f, "Unexpected handshake"),
 			Error::WrongNetwork => write!(f, "Wrong network"),
 			Error::UnknownPeer => write!(f, "Unknown peer"),
 			Error::UnsolicitedResponse => write!(f, "Peer provided unsolicited data"),
+			Error::BadBackReference => write!(f, "Bad back-reference in request."),
 			Error::NotServer => write!(f, "Peer not a server."),
 			Error::UnsupportedProtocolVersion(pv) => write!(f, "Unsupported protocol version: {}", pv),
 			Error::BadProtocolVersion => write!(f, "Bad protocol version in handshake"),
 			Error::Overburdened => write!(f, "Peer overburdened"),
+			Error::RejectedByHandlers => write!(f, "No handler kept this peer"),
 		}
 	}
 }

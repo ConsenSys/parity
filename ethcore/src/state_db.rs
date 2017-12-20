@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,14 +15,19 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{VecDeque, HashSet};
+use std::sync::Arc;
 use lru_cache::LruCache;
-use util::cache::MemoryLruCache;
-use util::journaldb::JournalDB;
-use util::hash::{H256};
-use util::hashdb::HashDB;
-use state::Account;
+use memory_cache::MemoryLruCache;
+use journaldb::JournalDB;
+use kvdb::{KeyValueDB, DBTransaction};
+use bigint::hash::H256;
+use hashdb::HashDB;
+use state::{self, Account};
 use header::BlockNumber;
-use util::{Arc, Address, Database, DBTransaction, UtilError, Mutex, Hashable};
+use hash::keccak;
+use parking_lot::Mutex;
+use util::Address;
+use util_error::UtilError;
 use bloom_journal::{Bloom, BloomJournal};
 use db::COL_ACCOUNT_BLOOM;
 use byteorder::{LittleEndian, ByteOrder};
@@ -116,7 +121,7 @@ impl StateDB {
 	// TODO: make the cache size actually accurate by moving the account storage cache
 	// into the `AccountCache` structure as its own `LruCache<(Address, H256), H256>`.
 	pub fn new(db: Box<JournalDB>, cache_size: usize) -> StateDB {
-		let bloom = Self::load_bloom(db.backing());
+		let bloom = Self::load_bloom(&**db.backing());
 		let acc_cache_size = cache_size * ACCOUNT_CACHE_RATIO / 100;
 		let code_cache_size = cache_size - acc_cache_size;
 		let cache_items = acc_cache_size / ::std::mem::size_of::<Option<Account>>();
@@ -139,7 +144,7 @@ impl StateDB {
 
 	/// Loads accounts bloom from the database
 	/// This bloom is used to handle request for the non-existant account fast
-	pub fn load_bloom(db: &Database) -> Bloom {
+	pub fn load_bloom(db: &KeyValueDB) -> Bloom {
 		let hash_count_entry = db.get(COL_ACCOUNT_BLOOM, ACCOUNT_BLOOM_HASHCOUNT_KEY)
 			.expect("Low-level database error");
 
@@ -163,18 +168,6 @@ impl StateDB {
 		let bloom = Bloom::from_parts(&bloom_parts, hash_count as u32);
 		trace!(target: "account_bloom", "Bloom is {:?} full, hash functions count = {:?}", bloom.saturation(), hash_count);
 		bloom
-	}
-
-	pub fn check_non_null_bloom(&self, address: &Address) -> bool {
-		trace!(target: "account_bloom", "Check account bloom: {:?}", address);
-		let bloom = self.account_bloom.lock();
-		bloom.check(&*address.sha3())
-	}
-
-	pub fn note_non_null_account(&self, address: &Address) {
-		trace!(target: "account_bloom", "Note account bloom: {:?}", address);
-		let mut bloom = self.account_bloom.lock();
-		bloom.set(&*address.sha3());
 	}
 
 	pub fn commit_bloom(batch: &mut DBTransaction, journal: BloomJournal) -> Result<(), UtilError> {
@@ -218,7 +211,7 @@ impl StateDB {
 	pub fn sync_cache(&mut self, enacted: &[H256], retracted: &[H256], is_best: bool) {
 		trace!("sync_cache id = (#{:?}, {:?}), parent={:?}, best={}", self.commit_number, self.commit_hash, self.parent_hash, is_best);
 		let mut cache = self.account_cache.lock();
-		let mut cache = &mut *cache;
+		let cache = &mut *cache;
 
 		// Purge changes from re-enacted and retracted blocks.
 		// Filter out commiting block if any.
@@ -305,12 +298,10 @@ impl StateDB {
 		}
 	}
 
-	/// Returns an interface to HashDB.
 	pub fn as_hashdb(&self) -> &HashDB {
 		self.db.as_hashdb()
 	}
 
-	/// Returns an interface to mutable HashDB.
 	pub fn as_hashdb_mut(&mut self) -> &mut HashDB {
 		self.db.as_hashdb_mut()
 	}
@@ -365,56 +356,6 @@ impl StateDB {
 		&*self.db
 	}
 
-	/// Add a local cache entry.
-	/// The entry will be propagated to the global cache in `sync_cache`.
-	/// `modified` indicates that the entry was changed since being read from disk or global cache.
-	/// `data` can be set to an existing (`Some`), or non-existing account (`None`).
-	pub fn add_to_account_cache(&mut self, addr: Address, data: Option<Account>, modified: bool) {
-		self.local_cache.push(CacheQueueItem {
-			address: addr,
-			account: data,
-			modified: modified,
-		})
-	}
-
-	/// Add a global code cache entry. This doesn't need to worry about canonicality because
-	/// it simply maps hashes to raw code and will always be correct in the absence of
-	/// hash collisions.
-	pub fn cache_code(&self, hash: H256, code: Arc<Vec<u8>>) {
-		let mut cache = self.code_cache.lock();
-
-		cache.insert(hash, code);
-	}
-
-	/// Get basic copy of the cached account. Does not include storage.
-	/// Returns 'None' if cache is disabled or if the account is not cached.
-	pub fn get_cached_account(&self, addr: &Address) -> Option<Option<Account>> {
-		let mut cache = self.account_cache.lock();
-		if !Self::is_allowed(addr, &self.parent_hash, &cache.modifications) {
-			return None;
-		}
-		cache.accounts.get_mut(addr).map(|a| a.as_ref().map(|a| a.clone_basic()))
-	}
-
-	/// Get cached code based on hash.
-	#[cfg_attr(feature="dev", allow(map_clone))]
-	pub fn get_cached_code(&self, hash: &H256) -> Option<Arc<Vec<u8>>> {
-		let mut cache = self.code_cache.lock();
-
-		cache.get_mut(hash).map(|code| code.clone())
-	}
-
-	/// Get value from a cached account.
-	/// Returns 'None' if cache is disabled or if the account is not cached.
-	pub fn get_cached<F, U>(&self, a: &Address, f: F) -> Option<U>
-		where F: FnOnce(Option<&mut Account>) -> U {
-		let mut cache = self.account_cache.lock();
-		if !Self::is_allowed(a, &self.parent_hash, &cache.modifications) {
-			return None;
-		}
-		cache.accounts.get_mut(a).map(|c| f(c.as_mut()))
-	}
-
 	/// Query how much memory is set aside for the accounts cache (in bytes).
 	pub fn cache_size(&self) -> usize {
 		self.cache_size
@@ -455,19 +396,82 @@ impl StateDB {
 	}
 }
 
+impl state::Backend for StateDB {
+	fn as_hashdb(&self) -> &HashDB {
+		self.db.as_hashdb()
+	}
+
+	fn as_hashdb_mut(&mut self) -> &mut HashDB {
+		self.db.as_hashdb_mut()
+	}
+
+	fn add_to_account_cache(&mut self, addr: Address, data: Option<Account>, modified: bool) {
+		self.local_cache.push(CacheQueueItem {
+			address: addr,
+			account: data,
+			modified: modified,
+		})
+	}
+
+	fn cache_code(&self, hash: H256, code: Arc<Vec<u8>>) {
+		let mut cache = self.code_cache.lock();
+
+		cache.insert(hash, code);
+	}
+
+	fn get_cached_account(&self, addr: &Address) -> Option<Option<Account>> {
+		let mut cache = self.account_cache.lock();
+		if !Self::is_allowed(addr, &self.parent_hash, &cache.modifications) {
+			return None;
+		}
+		cache.accounts.get_mut(addr).map(|a| a.as_ref().map(|a| a.clone_basic()))
+	}
+
+	#[cfg_attr(feature="dev", allow(map_clone))]
+	fn get_cached_code(&self, hash: &H256) -> Option<Arc<Vec<u8>>> {
+		let mut cache = self.code_cache.lock();
+
+		cache.get_mut(hash).map(|code| code.clone())
+	}
+
+	fn get_cached<F, U>(&self, a: &Address, f: F) -> Option<U>
+		where F: FnOnce(Option<&mut Account>) -> U {
+		let mut cache = self.account_cache.lock();
+		if !Self::is_allowed(a, &self.parent_hash, &cache.modifications) {
+			return None;
+		}
+		cache.accounts.get_mut(a).map(|c| f(c.as_mut()))
+	}
+
+	fn note_non_null_account(&self, address: &Address) {
+		trace!(target: "account_bloom", "Note account bloom: {:?}", address);
+		let mut bloom = self.account_bloom.lock();
+		bloom.set(&*keccak(address));
+	}
+
+	fn is_known_null(&self, address: &Address) -> bool {
+		trace!(target: "account_bloom", "Check account bloom: {:?}", address);
+		let bloom = self.account_bloom.lock();
+		let is_null = !bloom.check(&*keccak(address));
+		is_null
+	}
+}
+
 #[cfg(test)]
 mod tests {
-	use util::{U256, H256, FixedHash, Address, DBTransaction};
+	use bigint::prelude::U256;
+	use bigint::hash::H256;
+	use util::Address;
+	use kvdb::DBTransaction;
 	use tests::helpers::*;
-	use state::Account;
-	use util::log::init_log;
+	use state::{Account, Backend};
+	use ethcore_logger::init_log;
 
 	#[test]
 	fn state_db_smoke() {
 		init_log();
 
-		let mut state_db_result = get_temp_state_db();
-		let state_db = state_db_result.take();
+		let state_db = get_temp_state_db();
 		let root_parent = H256::random();
 		let address = Address::random();
 		let h0 = H256::random();
@@ -477,10 +481,10 @@ mod tests {
 		let h2b = H256::random();
 		let h3a = H256::random();
 		let h3b = H256::random();
-		let mut batch = DBTransaction::new(state_db.journal_db().backing());
+		let mut batch = DBTransaction::new();
 
 		// blocks  [ 3a(c) 2a(c) 2b 1b 1a(c) 0 ]
-	    // balance [ 5     5     4  3  2     2 ]
+		// balance [ 5     5     4  3  2     2 ]
 		let mut s = state_db.boxed_clone_canon(&root_parent);
 		s.add_to_account_cache(address, Some(Account::new_basic(2.into(), 0.into())), false);
 		s.journal_under(&mut batch, 0, &h0).unwrap();

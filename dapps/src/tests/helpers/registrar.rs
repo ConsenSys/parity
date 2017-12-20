@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,10 +17,13 @@
 use std::str;
 use std::sync::Arc;
 use std::collections::HashMap;
-use rustc_serialize::hex::FromHex;
 
-use hash_fetch::urlhint::ContractClient;
-use util::{Bytes, Address, Mutex, H256, ToPretty};
+use bigint::hash::H256;
+use bytes::{Bytes, ToPretty};
+use hash_fetch::urlhint::{ContractClient, BoxFuture};
+use parking_lot::Mutex;
+use rustc_hex::FromHex;
+use util::Address;
 
 const REGISTRAR: &'static str = "8e4e9b13d4b45cb0befc93c3061b1408f67316b2";
 const URLHINT: &'static str = "deadbeefcafe0000000000000000000000000000";
@@ -64,9 +67,10 @@ impl ContractClient for FakeRegistrar {
 		Ok(REGISTRAR.parse().unwrap())
 	}
 
-	fn call(&self, address: Address, data: Bytes) -> Result<Bytes, String> {
+	fn call(&self, address: Address, data: Bytes) -> BoxFuture<Bytes, String> {
 		let call = (address.to_hex(), data.to_hex());
 		self.calls.lock().push(call.clone());
-		self.responses.lock().get(&call).cloned().expect(&format!("No response for call: {:?}", call))
+		let res = self.responses.lock().get(&call).cloned().expect(&format!("No response for call: {:?}", call));
+		Box::new(::futures::future::done(res))
 	}
 }

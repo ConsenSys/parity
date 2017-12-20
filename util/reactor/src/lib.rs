@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
 extern crate futures;
 extern crate tokio_core;
 
-use std::thread;
+use std::{fmt, thread};
 use std::sync::mpsc;
 use std::time::Duration;
 use futures::{Future, IntoFuture};
-use self::tokio_core::reactor::{Remote as TokioRemote, Timeout};
+pub use tokio_core::reactor::{Remote as TokioRemote, Timeout};
 
 /// Event Loop for futures.
 /// Wrapper around `tokio::reactor::Core`.
@@ -47,7 +47,7 @@ impl EventLoop {
 		let remote = rx.recv().expect("tx is transfered to a newly spawned thread.");
 
 		EventLoop {
-			remote: Remote{
+			remote: Remote {
 				inner: Mode::Tokio(remote),
 			},
 			handle: EventLoopHandle {
@@ -81,7 +81,19 @@ enum Mode {
 	ThreadPerFuture,
 }
 
-#[derive(Clone)]
+impl fmt::Debug for Mode {
+	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+		use self::Mode::*;
+
+		match *self {
+			Tokio(_) => write!(fmt, "tokio"),
+			Sync => write!(fmt, "synchronous"),
+			ThreadPerFuture => write!(fmt, "thread per future"),
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
 pub struct Remote {
 	inner: Mode,
 }
@@ -190,7 +202,7 @@ impl From<EventLoop> for EventLoopHandle {
 
 impl Drop for EventLoopHandle {
 	fn drop(&mut self) {
-		self.close.take().map(|v| v.complete(()));
+		self.close.take().map(|v| v.send(()));
 	}
 }
 
@@ -203,7 +215,8 @@ impl EventLoopHandle {
 
 	/// Finishes this event loop.
 	pub fn close(mut self) {
-		self.close.take()
-			.expect("Close is taken only in `close` and `drop`. `close` is consuming; qed").complete(())
+		let _ = self.close.take()
+			.expect("Close is taken only in `close` and `drop`. `close` is consuming; qed")
+			.send(());
 	}
 }

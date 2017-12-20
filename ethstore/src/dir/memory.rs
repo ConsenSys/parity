@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Ethcore (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -22,6 +22,7 @@ use ethkey::Address;
 use {SafeAccount, Error};
 use super::KeyDirectory;
 
+/// Accounts in-memory storage.
 #[derive(Default)]
 pub struct MemoryDirectory {
 	accounts: RwLock<HashMap<Address, Vec<SafeAccount>>>,
@@ -34,7 +35,7 @@ impl KeyDirectory for MemoryDirectory {
 
 	fn update(&self, account: SafeAccount) -> Result<SafeAccount, Error> {
 		let mut lock = self.accounts.write();
-		let mut accounts = lock.entry(account.address.clone()).or_insert_with(Vec::new);
+		let accounts = lock.entry(account.address.clone()).or_insert_with(Vec::new);
 		// If the filename is the same we just need to replace the entry
 		accounts.retain(|acc| acc.filename != account.filename);
 		accounts.push(account.clone());
@@ -43,14 +44,14 @@ impl KeyDirectory for MemoryDirectory {
 
 	fn insert(&self, account: SafeAccount) -> Result<SafeAccount, Error> {
 		let mut lock = self.accounts.write();
-		let mut accounts = lock.entry(account.address.clone()).or_insert_with(Vec::new);
+		let accounts = lock.entry(account.address.clone()).or_insert_with(Vec::new);
 		accounts.push(account.clone());
 		Ok(account)
 	}
 
 	fn remove(&self, account: &SafeAccount) -> Result<(), Error> {
 		let mut accounts = self.accounts.write();
-		let is_empty = if let Some(mut accounts) = accounts.get_mut(&account.address) {
+		let is_empty = if let Some(accounts) = accounts.get_mut(&account.address) {
 			if let Some(position) = accounts.iter().position(|acc| acc == account) {
 				accounts.remove(position);
 			}
@@ -62,6 +63,13 @@ impl KeyDirectory for MemoryDirectory {
 			accounts.remove(&account.address);
 		}
 		Ok(())
+	}
+
+	fn unique_repr(&self) -> Result<u64, Error> {
+		let mut val = 0u64;
+		let accounts = self.accounts.read();
+		for acc in accounts.keys() { val = val ^ acc.low_u64() }
+		Ok(val)
 	}
 }
 

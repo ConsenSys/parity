@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,189 +15,202 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 //! Parity-specific rpc implementation.
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::str::FromStr;
 use std::collections::{BTreeMap, HashSet};
 
-use util::{RotatingLogger, Address};
+use util::Address;
 use util::misc::version_data;
 
-use crypto::ecies;
+use crypto::{DEFAULT_MAC, ecies};
 use ethkey::{Brain, Generator};
 use ethstore::random_phrase;
 use ethsync::{SyncProvider, ManageNetwork};
-use ethcore::miner::MinerService;
-use ethcore::client::{MiningBlockChainClient};
-use ethcore::mode::Mode;
 use ethcore::account_provider::AccountProvider;
+use ethcore::client::{MiningBlockChainClient};
+use ethcore::ids::BlockId;
+use ethcore::miner::MinerService;
+use ethcore::mode::Mode;
+use ethcore_logger::RotatingLogger;
+use node_health::{NodeHealth, Health};
 use updater::{Service as UpdateService};
 
-use jsonrpc_core::Error;
+use jsonrpc_core::{BoxFuture, Result};
+use jsonrpc_core::futures::{future, Future};
 use jsonrpc_macros::Trailing;
+use v1::helpers::{self, errors, fake_sign, ipfs, SigningQueue, SignerService, NetworkSettings};
+use v1::helpers::accounts::unwrap_provider;
+use v1::metadata::Metadata;
 use v1::traits::Parity;
 use v1::types::{
-	Bytes, U256, H160, H256, H512,
+	Bytes, U256, U64, H160, H256, H512, CallRequest,
 	Peers, Transaction, RpcSettings, Histogram,
 	TransactionStats, LocalTransactionStatus,
 	BlockNumber, ConsensusCapability, VersionInfo,
 	OperationsInfo, DappId, ChainStatus,
+	AccountInfo, HwAccountInfo, RichHeader
 };
-use v1::helpers::{errors, SigningQueue, SignerService, NetworkSettings};
-use v1::helpers::dispatch::DEFAULT_MAC;
+use Host;
 
 /// Parity implementation.
-pub struct ParityClient<C, M, S: ?Sized, U> where
-	C: MiningBlockChainClient,
-	M: MinerService,
-	S: SyncProvider,
-	U: UpdateService,
-{
-	client: Weak<C>,
-	miner: Weak<M>,
-	sync: Weak<S>,
-	updater: Weak<U>,
-	net: Weak<ManageNetwork>,
-	accounts: Weak<AccountProvider>,
+pub struct ParityClient<C, M, U>  {
+	client: Arc<C>,
+	miner: Arc<M>,
+	updater: Arc<U>,
+	sync: Arc<SyncProvider>,
+	net: Arc<ManageNetwork>,
+	health: NodeHealth,
+	accounts: Option<Arc<AccountProvider>>,
 	logger: Arc<RotatingLogger>,
 	settings: Arc<NetworkSettings>,
 	signer: Option<Arc<SignerService>>,
-	dapps_interface: Option<String>,
-	dapps_port: Option<u16>,
+	dapps_address: Option<Host>,
+	ws_address: Option<Host>,
+	eip86_transition: u64,
 }
 
-impl<C, M, S: ?Sized, U> ParityClient<C, M, S, U> where
+impl<C, M, U> ParityClient<C, M, U> where
 	C: MiningBlockChainClient,
-	M: MinerService,
-	S: SyncProvider,
-	U: UpdateService,
 {
 	/// Creates new `ParityClient`.
 	pub fn new(
-		client: &Arc<C>,
-		miner: &Arc<M>,
-		sync: &Arc<S>,
-		updater: &Arc<U>,
-		net: &Arc<ManageNetwork>,
-		store: &Arc<AccountProvider>,
+		client: Arc<C>,
+		miner: Arc<M>,
+		sync: Arc<SyncProvider>,
+		updater: Arc<U>,
+		net: Arc<ManageNetwork>,
+		health: NodeHealth,
+		accounts: Option<Arc<AccountProvider>>,
 		logger: Arc<RotatingLogger>,
 		settings: Arc<NetworkSettings>,
 		signer: Option<Arc<SignerService>>,
-		dapps_interface: Option<String>,
-		dapps_port: Option<u16>,
+		dapps_address: Option<Host>,
+		ws_address: Option<Host>,
 	) -> Self {
+		let eip86_transition = client.eip86_transition();
 		ParityClient {
-			client: Arc::downgrade(client),
-			miner: Arc::downgrade(miner),
-			sync: Arc::downgrade(sync),
-			updater: Arc::downgrade(updater),
-			net: Arc::downgrade(net),
-			accounts: Arc::downgrade(store),
-			logger: logger,
-			settings: settings,
-			signer: signer,
-			dapps_interface: dapps_interface,
-			dapps_port: dapps_port,
+			client,
+			miner,
+			sync,
+			updater,
+			net,
+			health,
+			accounts,
+			logger,
+			settings,
+			signer,
+			dapps_address,
+			ws_address,
+			eip86_transition,
 		}
 	}
 
-	fn active(&self) -> Result<(), Error> {
-		// TODO: only call every 30s at most.
-		take_weak!(self.client).keep_alive();
-		Ok(())
+	/// Attempt to get the `Arc<AccountProvider>`, errors if provider was not
+	/// set.
+	fn account_provider(&self) -> Result<Arc<AccountProvider>> {
+		unwrap_provider(&self.accounts)
 	}
 }
 
-impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
-	M: MinerService + 'static,
+impl<C, M, U> Parity for ParityClient<C, M, U> where
 	C: MiningBlockChainClient + 'static,
-	S: SyncProvider + 'static,
+	M: MinerService + 'static,
 	U: UpdateService + 'static,
 {
-	fn accounts_info(&self, dapp: Trailing<DappId>) -> Result<BTreeMap<String, BTreeMap<String, String>>, Error> {
-		self.active()?;
+	type Metadata = Metadata;
 
-		let dapp = dapp.0;
+	fn accounts_info(&self, dapp: Trailing<DappId>) -> Result<BTreeMap<H160, AccountInfo>> {
+		let dapp = dapp.unwrap_or_default();
 
-		let store = take_weak!(self.accounts);
+		let store = self.account_provider()?;
 		let dapp_accounts = store
 			.note_dapp_used(dapp.clone().into())
-			.and_then(|_| store.dapps_addresses(dapp.into()))
-			.map_err(|e| errors::internal("Could not fetch accounts.", e))?
+			.and_then(|_| store.dapp_addresses(dapp.into()))
+			.map_err(|e| errors::account("Could not fetch accounts.", e))?
 			.into_iter().collect::<HashSet<_>>();
 
 		let info = store.accounts_info().map_err(|e| errors::account("Could not fetch account info.", e))?;
-		let other = store.addresses_info().expect("addresses_info always returns Ok; qed");
+		let other = store.addresses_info();
 
 		Ok(info
 			.into_iter()
 			.chain(other.into_iter())
 			.filter(|&(ref a, _)| dapp_accounts.contains(a))
-			.map(|(a, v)| {
-				let m = map![
-					"name".to_owned() => v.name
-				];
-				(format!("0x{}", a.hex()), m)
-			})
+			.map(|(a, v)| (H160::from(a), AccountInfo { name: v.name }))
 			.collect()
 		)
 	}
 
-	fn transactions_limit(&self) -> Result<usize, Error> {
-		self.active()?;
-
-		Ok(take_weak!(self.miner).transactions_limit())
+	fn hardware_accounts_info(&self) -> Result<BTreeMap<H160, HwAccountInfo>> {
+		let store = self.account_provider()?;
+		let info = store.hardware_accounts_info().map_err(|e| errors::account("Could not fetch account info.", e))?;
+		Ok(info
+			.into_iter()
+			.map(|(a, v)| (H160::from(a), HwAccountInfo { name: v.name, manufacturer: v.meta }))
+			.collect()
+		)
 	}
 
-	fn min_gas_price(&self) -> Result<U256, Error> {
-		self.active()?;
-
-		Ok(U256::from(take_weak!(self.miner).minimal_gas_price()))
+	fn locked_hardware_accounts_info(&self) -> Result<Vec<String>> {
+		let store = self.account_provider()?;
+		Ok(store.locked_hardware_accounts().map_err(|e| errors::account("Error communicating with hardware wallet.", e))?)
 	}
 
-	fn extra_data(&self) -> Result<Bytes, Error> {
-		self.active()?;
+	fn default_account(&self, meta: Self::Metadata) -> Result<H160> {
+		let dapp_id = meta.dapp_id();
 
-		Ok(Bytes::new(take_weak!(self.miner).extra_data()))
+		Ok(self.account_provider()?
+			.dapp_default_address(dapp_id.into())
+			.map(Into::into)
+			.ok()
+			.unwrap_or_default())
 	}
 
-	fn gas_floor_target(&self) -> Result<U256, Error> {
-		self.active()?;
-
-		Ok(U256::from(take_weak!(self.miner).gas_floor_target()))
+	fn transactions_limit(&self) -> Result<usize> {
+		Ok(self.miner.transactions_limit())
 	}
 
-	fn gas_ceil_target(&self) -> Result<U256, Error> {
-		self.active()?;
-
-		Ok(U256::from(take_weak!(self.miner).gas_ceil_target()))
+	fn min_gas_price(&self) -> Result<U256> {
+		Ok(U256::from(self.miner.minimal_gas_price()))
 	}
 
-	fn dev_logs(&self) -> Result<Vec<String>, Error> {
-		self.active()?;
+	fn extra_data(&self) -> Result<Bytes> {
+		Ok(Bytes::new(self.miner.extra_data()))
+	}
 
+	fn gas_floor_target(&self) -> Result<U256> {
+		Ok(U256::from(self.miner.gas_floor_target()))
+	}
+
+	fn gas_ceil_target(&self) -> Result<U256> {
+		Ok(U256::from(self.miner.gas_ceil_target()))
+	}
+
+	fn dev_logs(&self) -> Result<Vec<String>> {
 		let logs = self.logger.logs();
 		Ok(logs.as_slice().to_owned())
 	}
 
-	fn dev_logs_levels(&self) -> Result<String, Error> {
-		self.active()?;
-
+	fn dev_logs_levels(&self) -> Result<String> {
 		Ok(self.logger.levels().to_owned())
 	}
 
-	fn net_chain(&self) -> Result<String, Error> {
-		self.active()?;
-
+	fn net_chain(&self) -> Result<String> {
 		Ok(self.settings.chain.clone())
 	}
 
-	fn net_peers(&self) -> Result<Peers, Error> {
-		self.active()?;
+	fn chain_id(&self) -> Result<Option<U64>> {
+		Ok(self.client.signing_chain_id().map(U64::from))
+	}
 
-		let sync = take_weak!(self.sync);
-		let sync_status = sync.status();
-		let net_config = take_weak!(self.net).network_config();
-		let peers = sync.peers().into_iter().map(Into::into).collect();
+	fn chain(&self) -> Result<String> {
+		Ok(self.client.spec_name())
+	}
+
+	fn net_peers(&self) -> Result<Peers> {
+		let sync_status = self.sync.status();
+		let net_config = self.net.network_config();
+		let peers = self.sync.peers().into_iter().map(Into::into).collect();
 
 		Ok(Peers {
 			active: sync_status.num_active_peers,
@@ -207,23 +220,17 @@ impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
 		})
 	}
 
-	fn net_port(&self) -> Result<u16, Error> {
-		self.active()?;
-
+	fn net_port(&self) -> Result<u16> {
 		Ok(self.settings.network_port)
 	}
 
-	fn node_name(&self) -> Result<String, Error> {
-		self.active()?;
-
+	fn node_name(&self) -> Result<String> {
 		Ok(self.settings.name.clone())
 	}
 
-	fn registry_address(&self) -> Result<Option<H160>, Error> {
-		self.active()?;
-
+	fn registry_address(&self) -> Result<Option<H160>> {
 		Ok(
-			take_weak!(self.client)
+			self.client
 				.additional_params()
 				.get("registrar")
 				.and_then(|s| Address::from_str(s).ok())
@@ -231,8 +238,7 @@ impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
 		)
 	}
 
-	fn rpc_settings(&self) -> Result<RpcSettings, Error> {
-		self.active()?;
+	fn rpc_settings(&self) -> Result<RpcSettings> {
 		Ok(RpcSettings {
 			enabled: self.settings.rpc_enabled,
 			interface: self.settings.rpc_interface.clone(),
@@ -240,134 +246,107 @@ impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
 		})
 	}
 
-	fn default_extra_data(&self) -> Result<Bytes, Error> {
-		self.active()?;
-
+	fn default_extra_data(&self) -> Result<Bytes> {
 		Ok(Bytes::new(version_data()))
 	}
 
-	fn gas_price_histogram(&self) -> Result<Histogram, Error> {
-		self.active()?;
-		take_weak!(self.client).gas_price_histogram(100, 10).ok_or_else(errors::not_enough_data).map(Into::into)
+	fn gas_price_histogram(&self) -> BoxFuture<Histogram> {
+		Box::new(future::done(self.client
+			.gas_price_corpus(100)
+			.histogram(10)
+			.ok_or_else(errors::not_enough_data)
+			.map(Into::into)
+		))
 	}
 
-	fn unsigned_transactions_count(&self) -> Result<usize, Error> {
-		self.active()?;
-
+	fn unsigned_transactions_count(&self) -> Result<usize> {
 		match self.signer {
 			None => Err(errors::signer_disabled()),
 			Some(ref signer) => Ok(signer.len()),
 		}
 	}
 
-	fn generate_secret_phrase(&self) -> Result<String, Error> {
-		self.active()?;
-
+	fn generate_secret_phrase(&self) -> Result<String> {
 		Ok(random_phrase(12))
 	}
 
-	fn phrase_to_address(&self, phrase: String) -> Result<H160, Error> {
-		self.active()?;
-
+	fn phrase_to_address(&self, phrase: String) -> Result<H160> {
 		Ok(Brain::new(phrase).generate().unwrap().address().into())
 	}
 
-	fn list_accounts(&self, count: u64, after: Option<H160>, block_number: Trailing<BlockNumber>) -> Result<Option<Vec<H160>>, Error> {
-		self.active()?;
-
-		Ok(take_weak!(self.client)
-			.list_accounts(block_number.0.into(), after.map(Into::into).as_ref(), count)
+	fn list_accounts(&self, count: u64, after: Option<H160>, block_number: Trailing<BlockNumber>) -> Result<Option<Vec<H160>>> {
+		Ok(self.client
+			.list_accounts(block_number.unwrap_or_default().into(), after.map(Into::into).as_ref(), count)
 			.map(|a| a.into_iter().map(Into::into).collect()))
 	}
 
-	fn list_storage_keys(&self, address: H160, count: u64, after: Option<H256>, block_number: Trailing<BlockNumber>) -> Result<Option<Vec<H256>>, Error> {
-		self.active()?;
-
-		Ok(take_weak!(self.client)
-			.list_storage(block_number.0.into(), &address.into(), after.map(Into::into).as_ref(), count)
+	fn list_storage_keys(&self, address: H160, count: u64, after: Option<H256>, block_number: Trailing<BlockNumber>) -> Result<Option<Vec<H256>>> {
+		Ok(self.client
+			.list_storage(block_number.unwrap_or_default().into(), &address.into(), after.map(Into::into).as_ref(), count)
 			.map(|a| a.into_iter().map(Into::into).collect()))
 	}
 
-	fn encrypt_message(&self, key: H512, phrase: Bytes) -> Result<Bytes, Error> {
-		self.active()?;
-
+	fn encrypt_message(&self, key: H512, phrase: Bytes) -> Result<Bytes> {
 		ecies::encrypt(&key.into(), &DEFAULT_MAC, &phrase.0)
-			.map_err(errors::encryption_error)
+			.map_err(errors::encryption)
 			.map(Into::into)
 	}
 
-	fn pending_transactions(&self) -> Result<Vec<Transaction>, Error> {
-		self.active()?;
-
-		Ok(take_weak!(self.miner).pending_transactions().into_iter().map(Into::into).collect::<Vec<_>>())
+	fn pending_transactions(&self) -> Result<Vec<Transaction>> {
+		let block_number = self.client.chain_info().best_block_number;
+		Ok(self.miner.pending_transactions().into_iter().map(|t| Transaction::from_pending(t, block_number, self.eip86_transition)).collect::<Vec<_>>())
 	}
 
-	fn future_transactions(&self) -> Result<Vec<Transaction>, Error> {
-		self.active()?;
-
-		Ok(take_weak!(self.miner).future_transactions().into_iter().map(Into::into).collect::<Vec<_>>())
+	fn future_transactions(&self) -> Result<Vec<Transaction>> {
+		let block_number = self.client.chain_info().best_block_number;
+		Ok(self.miner.future_transactions().into_iter().map(|t| Transaction::from_pending(t, block_number, self.eip86_transition)).collect::<Vec<_>>())
 	}
 
-	fn pending_transactions_stats(&self) -> Result<BTreeMap<H256, TransactionStats>, Error> {
-		self.active()?;
-
-		let stats = take_weak!(self.sync).transactions_stats();
+	fn pending_transactions_stats(&self) -> Result<BTreeMap<H256, TransactionStats>> {
+		let stats = self.sync.transactions_stats();
 		Ok(stats.into_iter()
 		   .map(|(hash, stats)| (hash.into(), stats.into()))
 		   .collect()
 		)
 	}
 
-	fn local_transactions(&self) -> Result<BTreeMap<H256, LocalTransactionStatus>, Error> {
-		self.active()?;
+	fn local_transactions(&self) -> Result<BTreeMap<H256, LocalTransactionStatus>> {
+		// Return nothing if accounts are disabled (running as public node)
+		if self.accounts.is_none() {
+			return Ok(BTreeMap::new());
+		}
 
-		let transactions = take_weak!(self.miner).local_transactions();
+		let transactions = self.miner.local_transactions();
+		let block_number = self.client.chain_info().best_block_number;
 		Ok(transactions
 		   .into_iter()
-		   .map(|(hash, status)| (hash.into(), status.into()))
+		   .map(|(hash, status)| (hash.into(), LocalTransactionStatus::from(status, block_number, self.eip86_transition)))
 		   .collect()
 		)
 	}
 
-	fn signer_port(&self) -> Result<u16, Error> {
-		self.active()?;
-
-		self.signer
-			.clone()
-			.and_then(|signer| signer.address())
-			.map(|address| address.1)
-			.ok_or_else(|| errors::signer_disabled())
-	}
-
-	fn dapps_port(&self) -> Result<u16, Error> {
-		self.active()?;
-
-		self.dapps_port
+	fn dapps_url(&self) -> Result<String> {
+		helpers::to_url(&self.dapps_address)
 			.ok_or_else(|| errors::dapps_disabled())
 	}
 
-	fn dapps_interface(&self) -> Result<String, Error> {
-		self.active()?;
-
-		self.dapps_interface.clone()
-			.ok_or_else(|| errors::dapps_disabled())
+	fn ws_url(&self) -> Result<String> {
+		helpers::to_url(&self.ws_address)
+			.ok_or_else(|| errors::ws_disabled())
 	}
 
-	fn next_nonce(&self, address: H160) -> Result<U256, Error> {
-		self.active()?;
+	fn next_nonce(&self, address: H160) -> BoxFuture<U256> {
 		let address: Address = address.into();
-		let miner = take_weak!(self.miner);
-		let client = take_weak!(self.client);
 
-		Ok(miner.last_nonce(&address)
+		Box::new(future::ok(self.miner.last_nonce(&address)
 			.map(|n| n + 1.into())
-			.unwrap_or_else(|| client.latest_nonce(&address))
+			.unwrap_or_else(|| self.client.latest_nonce(&address))
 			.into()
-		)
+		))
 	}
 
-	fn mode(&self) -> Result<String, Error> {
-		Ok(match take_weak!(self.client).mode() {
+	fn mode(&self) -> Result<String> {
+		Ok(match self.client.mode() {
 			Mode::Off => "offline",
 			Mode::Dark(..) => "dark",
 			Mode::Passive(..) => "passive",
@@ -375,32 +354,24 @@ impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
 		}.into())
 	}
 
-	fn enode(&self) -> Result<String, Error> {
-		take_weak!(self.sync).enode().ok_or_else(errors::network_disabled)
+	fn enode(&self) -> Result<String> {
+		self.sync.enode().ok_or_else(errors::network_disabled)
 	}
 
-	fn consensus_capability(&self) -> Result<ConsensusCapability, Error> {
-		self.active()?;
-		let updater = take_weak!(self.updater);
-		Ok(updater.capability().into())
+	fn consensus_capability(&self) -> Result<ConsensusCapability> {
+		Ok(self.updater.capability().into())
 	}
 
-	fn version_info(&self) -> Result<VersionInfo, Error> {
-		self.active()?;
-		let updater = take_weak!(self.updater);
-		Ok(updater.version_info().into())
+	fn version_info(&self) -> Result<VersionInfo> {
+		Ok(self.updater.version_info().into())
 	}
 
-	fn releases_info(&self) -> Result<Option<OperationsInfo>, Error> {
-		self.active()?;
-		let updater = take_weak!(self.updater);
-		Ok(updater.info().map(Into::into))
+	fn releases_info(&self) -> Result<Option<OperationsInfo>> {
+		Ok(self.updater.info().map(Into::into))
 	}
 
-	fn chain_status(&self) -> Result<ChainStatus, Error> {
-		self.active()?;
-
-		let chain_info = take_weak!(self.client).chain_info();
+	fn chain_status(&self) -> Result<ChainStatus> {
+		let chain_info = self.client.chain_info();
 
 		let gap = chain_info.ancient_block_number.map(|x| U256::from(x + 1))
 			.and_then(|first| chain_info.first_block_number.map(|last| (first, U256::from(last))));
@@ -408,5 +379,59 @@ impl<C, M, S: ?Sized, U> Parity for ParityClient<C, M, S, U> where
 		Ok(ChainStatus {
 			block_gap: gap.map(|(x, y)| (x.into(), y.into())),
 		})
+	}
+
+	fn node_kind(&self) -> Result<::v1::types::NodeKind> {
+		use ::v1::types::{NodeKind, Availability, Capability};
+
+		let availability = match self.accounts {
+			Some(_) => Availability::Personal,
+			None => Availability::Public
+		};
+
+		Ok(NodeKind {
+			availability: availability,
+			capability: Capability::Full,
+		})
+	}
+
+	fn block_header(&self, number: Trailing<BlockNumber>) -> BoxFuture<RichHeader> {
+		const EXTRA_INFO_PROOF: &'static str = "Object exists in in blockchain (fetched earlier), extra_info is always available if object exists; qed";
+
+		let id: BlockId = number.unwrap_or_default().into();
+		let encoded = match self.client.block_header(id.clone()) {
+			Some(encoded) => encoded,
+			None => return Box::new(future::err(errors::unknown_block())),
+		};
+
+		Box::new(future::ok(RichHeader {
+			inner: encoded.into(),
+			extra_info: self.client.block_extra_info(id).expect(EXTRA_INFO_PROOF),
+		}))
+	}
+
+	fn ipfs_cid(&self, content: Bytes) -> Result<String> {
+		ipfs::cid(content)
+	}
+
+	fn call(&self, meta: Self::Metadata, requests: Vec<CallRequest>, block: Trailing<BlockNumber>) -> Result<Vec<Bytes>> {
+		let requests = requests
+			.into_iter()
+			.map(|request| Ok((
+				fake_sign::sign_call(request.into(), meta.is_dapp())?,
+				Default::default()
+			)))
+			.collect::<Result<Vec<_>>>()?;
+
+		let block = block.unwrap_or_default();
+
+		self.client.call_many(&requests, block.into())
+				.map(|res| res.into_iter().map(|res| res.output.into()).collect())
+				.map_err(errors::call)
+	}
+
+	fn node_health(&self) -> BoxFuture<Health> {
+		Box::new(self.health.health()
+			.map_err(|err| errors::internal("Health API failure.", err)))
 	}
 }

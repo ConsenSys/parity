@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,21 +16,24 @@
 
 use std::sync::Arc;
 use std::str::FromStr;
-use jsonrpc_core::IoHandler;
-use util::{U256, Uint, Address};
+
+use bigint::prelude::U256;
 use ethcore::account_provider::AccountProvider;
-use v1::{PersonalClient, Personal};
-use v1::tests::helpers::TestMinerService;
 use ethcore::client::TestBlockChainClient;
 use ethcore::transaction::{Action, Transaction};
+use jsonrpc_core::IoHandler;
+use parking_lot::Mutex;
+use util::Address;
+
+use v1::{PersonalClient, Personal, Metadata};
+use v1::helpers::nonce;
+use v1::helpers::dispatch::FullDispatcher;
+use v1::tests::helpers::TestMinerService;
 
 struct PersonalTester {
 	accounts: Arc<AccountProvider>,
-	io: IoHandler,
+	io: IoHandler<Metadata>,
 	miner: Arc<TestMinerService>,
-	// these unused fields are necessary to keep the data alive
-	// as the handler has only weak pointers.
-	_client: Arc<TestBlockChainClient>,
 }
 
 fn blockchain_client() -> Arc<TestBlockChainClient> {
@@ -48,9 +51,13 @@ fn miner_service() -> Arc<TestMinerService> {
 
 fn setup() -> PersonalTester {
 	let accounts = accounts_provider();
+	let opt_accounts = Some(accounts.clone());
 	let client = blockchain_client();
 	let miner = miner_service();
-	let personal = PersonalClient::new(&accounts, &client, &miner, false);
+	let reservations = Arc::new(Mutex::new(nonce::Reservations::new()));
+
+	let dispatcher = FullDispatcher::new(client, miner.clone(), reservations);
+	let personal = PersonalClient::new(opt_accounts, dispatcher, false);
 
 	let mut io = IoHandler::default();
 	io.extend_with(personal.to_delegate());
@@ -59,7 +66,6 @@ fn setup() -> PersonalTester {
 		accounts: accounts,
 		io: io,
 		miner: miner,
-		_client: client,
 	};
 
 	tester
@@ -90,22 +96,23 @@ fn new_account() {
 	assert_eq!(res, Some(response));
 }
 
-#[test]
-fn sign_and_send_transaction_with_invalid_password() {
+fn invalid_password_test(method: &str)
+{
 	let tester = setup();
 	let address = tester.accounts.new_account("password123").unwrap();
+
 	let request = r#"{
 		"jsonrpc": "2.0",
-		"method": "personal_signAndSendTransaction",
+		"method": ""#.to_owned() + method + r#"",
 		"params": [{
-			"from": ""#.to_owned() + format!("0x{:?}", address).as_ref() + r#"",
+			"from": ""# + format!("0x{:?}", address).as_ref() + r#"",
 			"to": "0xd46e8dd67c5d32be8058bb8eb970870f07244567",
 			"gas": "0x76c0",
 			"gasPrice": "0x9184e72a000",
 			"value": "0x9184e72a"
 		}, "password321"],
 		"id": 1
-	}"#;
+	}"#;	
 
 	let response = r#"{"jsonrpc":"2.0","error":{"code":-32021,"message":"Account password is invalid or account does not exist.","data":"SStore(InvalidPassword)"},"id":1}"#;
 
@@ -113,15 +120,34 @@ fn sign_and_send_transaction_with_invalid_password() {
 }
 
 #[test]
+fn sign_transaction_with_invalid_password() {
+	invalid_password_test("personal_signTransaction");
+}
+
+#[test]
+fn sign_and_send_transaction_with_invalid_password() {
+	invalid_password_test("personal_sendTransaction");
+}
+
+#[test]
+fn send_transaction() {
+	sign_and_send_test("personal_sendTransaction");
+}
+
+#[test]
 fn sign_and_send_transaction() {
+	sign_and_send_test("personal_signAndSendTransaction");
+}
+
+fn sign_and_send_test(method: &str) {
 	let tester = setup();
 	let address = tester.accounts.new_account("password123").unwrap();
 
 	let request = r#"{
 		"jsonrpc": "2.0",
-		"method": "personal_signAndSendTransaction",
+		"method": ""#.to_owned() + method + r#"",
 		"params": [{
-			"from": ""#.to_owned() + format!("0x{:?}", address).as_ref() + r#"",
+			"from": ""# + format!("0x{:?}", address).as_ref() + r#"",
 			"to": "0xd46e8dd67c5d32be8058bb8eb970870f07244567",
 			"gas": "0x76c0",
 			"gasPrice": "0x9184e72a000",
@@ -166,7 +192,7 @@ fn sign_and_send_transaction() {
 }
 
 #[test]
-fn should_unlock_account_temporarily() {
+fn should_unlock_not_account_temporarily_if_allow_perm_is_disabled() {
 	let tester = setup();
 	let address = tester.accounts.new_account("password123").unwrap();
 
@@ -180,10 +206,10 @@ fn should_unlock_account_temporarily() {
 		],
 		"id": 1
 	}"#;
-	let response = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
+	let response = r#"{"jsonrpc":"2.0","error":{"code":-32000,"message":"Time-unlocking is only supported in --geth compatibility mode.","data":"Restart your client with --geth flag or use personal_sendTransaction instead."},"id":1}"#;
 	assert_eq!(tester.io.handle_request_sync(&request), Some(response.into()));
 
-	assert!(tester.accounts.sign(address, None, Default::default()).is_ok(), "Should unlock account.");
+	assert!(tester.accounts.sign(address, None, Default::default()).is_err(), "Should not unlock account.");
 }
 
 #[test]
@@ -205,4 +231,3 @@ fn should_unlock_account_permanently() {
 	assert_eq!(tester.io.handle_request_sync(&request), Some(response.into()));
 	assert!(tester.accounts.sign(address, None, Default::default()).is_ok(), "Should unlock account.");
 }
-

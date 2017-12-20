@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -29,6 +29,7 @@ pub mod validator_set;
 pub mod basic_authority;
 pub mod authority_round;
 pub mod tendermint;
+pub mod null_engine;
 
 pub use self::account::Account;
 pub use self::builtin::{Builtin, Pricing, Linear};
@@ -43,3 +44,4 @@ pub use self::validator_set::ValidatorSet;
 pub use self::basic_authority::{BasicAuthority, BasicAuthorityParams};
 pub use self::authority_round::{AuthorityRound, AuthorityRoundParams};
 pub use self::tendermint::{Tendermint, TendermintParams};
+pub use self::null_engine::{NullEngine, NullEngineParams};

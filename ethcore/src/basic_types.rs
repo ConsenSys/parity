@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,13 +16,11 @@
 
 //! Ethcore basic typenames.
 
-use util::hash::H2048;
-
 /// Type for a 2048-bit log-bloom, as used by our blocks.
-pub type LogBloom = H2048;
+pub type LogBloom = ::log_entry::LogBloom;
 
 /// Constant 2048-bit datum for 0. Often used as a default.
-pub static ZERO_LOGBLOOM: LogBloom = H2048([0x00; 256]);
+pub static ZERO_LOGBLOOM: LogBloom = ::bigint::hash::H2048([0x00; 256]);
 
 #[cfg_attr(feature="dev", allow(enum_variant_names))]
 /// Semantic boolean for when a seal/signature is included.

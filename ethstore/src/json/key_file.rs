@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,11 +14,32 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
 use std::io::{Read, Write};
-use serde::{Deserialize, Deserializer, Error};
-use serde::de::{Visitor, MapVisitor};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use serde::de::{Error, Visitor, MapAccess, DeserializeOwned};
 use serde_json;
 use super::{Uuid, Version, Crypto, H160};
+
+/// Public opaque type representing serializable `KeyFile`.
+#[derive(Debug, PartialEq)]
+pub struct OpaqueKeyFile {
+	key_file: KeyFile
+}
+
+impl Serialize for OpaqueKeyFile {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where
+		S: Serializer,
+	{
+		self.key_file.serialize(serializer)
+	}
+}
+
+impl<T> From<T> for OpaqueKeyFile where T: Into<KeyFile> {
+	fn from(val: T) -> Self {
+		OpaqueKeyFile { key_file: val.into() }
+	}
+}
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct KeyFile {
@@ -39,20 +60,24 @@ enum KeyFileField {
 	Meta,
 }
 
-impl Deserialize for KeyFileField {
-	fn deserialize<D>(deserializer: &mut D) -> Result<KeyFileField, D::Error>
-		where D: Deserializer
+impl<'a> Deserialize<'a> for KeyFileField {
+	fn deserialize<D>(deserializer: D) -> Result<KeyFileField, D::Error>
+		where D: Deserializer<'a>
 	{
-		deserializer.deserialize(KeyFileFieldVisitor)
+		deserializer.deserialize_any(KeyFileFieldVisitor)
 	}
 }
 
 struct KeyFileFieldVisitor;
 
-impl Visitor for KeyFileFieldVisitor {
+impl<'a> Visitor<'a> for KeyFileFieldVisitor {
 	type Value = KeyFileField;
 
-	fn visit_str<E>(&mut self, value: &str) -> Result<Self::Value, E>
+	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+		write!(formatter, "a valid key file field")
+	}
+
+	fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
 		where E: Error
 	{
 		match value {
@@ -68,22 +93,37 @@ impl Visitor for KeyFileFieldVisitor {
 	}
 }
 
-impl Deserialize for KeyFile {
-	fn deserialize<D>(deserializer: &mut D) -> Result<KeyFile, D::Error>
-		where D: Deserializer
+impl<'a> Deserialize<'a> for KeyFile {
+	fn deserialize<D>(deserializer: D) -> Result<KeyFile, D::Error>
+		where D: Deserializer<'a>
 	{
 		static FIELDS: &'static [&'static str] = &["id", "version", "crypto", "Crypto", "address"];
 		deserializer.deserialize_struct("KeyFile", FIELDS, KeyFileVisitor)
 	}
 }
 
-struct KeyFileVisitor;
 
-impl Visitor for KeyFileVisitor {
+fn none_if_empty<'a, T>(v: Option<serde_json::Value>) -> Option<T> where
+	T: DeserializeOwned
+{
+	v.and_then(|v| if v.is_null() {
+		None
+	} else {
+		serde_json::from_value(v).ok()
+	})
+
+}
+
+struct KeyFileVisitor;
+impl<'a> Visitor<'a> for KeyFileVisitor {
 	type Value = KeyFile;
 
-	fn visit_map<V>(&mut self, mut visitor: V) -> Result<Self::Value, V::Error>
-		where V: MapVisitor
+	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+		write!(formatter, "a valid key object")
+	}
+
+	fn visit_map<V>(self, mut visitor: V) -> Result<Self::Value, V::Error>
+		where V: MapAccess<'a>
 	{
 		let mut id = None;
 		let mut version = None;
@@ -93,38 +133,36 @@ impl Visitor for KeyFileVisitor {
 		let mut meta = None;
 
 		loop {
-			match visitor.visit_key()? {
-				Some(KeyFileField::Id) => { id = Some(visitor.visit_value()?); }
-				Some(KeyFileField::Version) => { version = Some(visitor.visit_value()?); }
-				Some(KeyFileField::Crypto) => { crypto = Some(visitor.visit_value()?); }
-				Some(KeyFileField::Address) => { address = Some(visitor.visit_value()?); }
-				Some(KeyFileField::Name) => { name = visitor.visit_value().ok(); }	// ignore anyhing that is not a string to be permissive.
-				Some(KeyFileField::Meta) => { meta = visitor.visit_value().ok(); }	// ignore anyhing that is not a string to be permissive.
+			match visitor.next_key()? {
+				Some(KeyFileField::Id) => { id = Some(visitor.next_value()?); }
+				Some(KeyFileField::Version) => { version = Some(visitor.next_value()?); }
+				Some(KeyFileField::Crypto) => { crypto = Some(visitor.next_value()?); }
+				Some(KeyFileField::Address) => { address = Some(visitor.next_value()?); }
+				Some(KeyFileField::Name) => { name = none_if_empty(visitor.next_value().ok()) }
+				Some(KeyFileField::Meta) => { meta = none_if_empty(visitor.next_value().ok()) }
 				None => { break; }
 			}
 		}
 
 		let id = match id {
 			Some(id) => id,
-			None => visitor.missing_field("id")?,
+			None => return Err(V::Error::missing_field("id")),
 		};
 
 		let version = match version {
 			Some(version) => version,
-			None => visitor.missing_field("version")?,
+			None => return Err(V::Error::missing_field("version")),
 		};
 
 		let crypto = match crypto {
 			Some(crypto) => crypto,
-			None => visitor.missing_field("crypto")?,
+			None => return Err(V::Error::missing_field("crypto")),
 		};
 
 		let address = match address {
 			Some(address) => address,
-			None => visitor.missing_field("address")?,
+			None => return Err(V::Error::missing_field("address")),
 		};
-
-		visitor.end()?;
 
 		let result = KeyFile {
 			id: id,

@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,57 +14,48 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
-use util::Address;
-use builtin::Builtin;
 use engines::{Engine, Seal};
-use env_info::EnvInfo;
-use spec::CommonParams;
-use evm::Schedule;
-use block::ExecutedBlock;
+use parity_machine::{Machine, Transactions};
 
 /// An engine which does not provide any consensus mechanism, just seals blocks internally.
-pub struct InstantSeal {
-	params: CommonParams,
-	builtins: BTreeMap<Address, Builtin>,
+/// Only seals blocks which have transactions.
+pub struct InstantSeal<M> {
+	machine: M,
 }
 
-impl InstantSeal {
-	/// Returns new instance of InstantSeal with default VM Factory
-	pub fn new(params: CommonParams, builtins: BTreeMap<Address, Builtin>) -> Self {
+impl<M> InstantSeal<M> {
+	/// Returns new instance of InstantSeal over the given state machine.
+	pub fn new(machine: M) -> Self {
 		InstantSeal {
-			params: params,
-			builtins: builtins,
+			machine: machine,
 		}
 	}
 }
 
-impl Engine for InstantSeal {
+impl<M: Machine> Engine<M> for InstantSeal<M>
+	where M::LiveBlock: Transactions
+{
 	fn name(&self) -> &str {
 		"InstantSeal"
 	}
 
-	fn params(&self) -> &CommonParams {
-		&self.params
+	fn machine(&self) -> &M { &self.machine }
+
+	fn seals_internally(&self) -> Option<bool> { Some(true) }
+
+	fn generate_seal(&self, block: &M::LiveBlock, _parent: &M::Header) -> Seal {
+		if block.transactions().is_empty() { Seal::None } else { Seal::Regular(Vec::new()) }
 	}
 
-	fn builtins(&self) -> &BTreeMap<Address, Builtin> {
-		&self.builtins
-	}
-
-	fn schedule(&self, _env_info: &EnvInfo) -> Schedule {
-		Schedule::new_post_eip150(usize::max_value(), true, true, true)
-	}
-
-	fn is_sealer(&self, _author: &Address) -> Option<bool> { Some(true) }
-
-	fn generate_seal(&self, _block: &ExecutedBlock) -> Seal {
-		Seal::Regular(Vec::new())
+	fn verify_local_seal(&self, _header: &M::Header) -> Result<(), M::Error> {
+		Ok(())
 	}
 }
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+	use bigint::hash::H520;
 	use util::*;
 	use tests::helpers::*;
 	use spec::Spec;
@@ -76,13 +67,12 @@ mod tests {
 	fn instant_can_seal() {
 		let spec = Spec::new_instant();
 		let engine = &*spec.engine;
+		let db = spec.ensure_db_good(get_temp_state_db(), &Default::default()).unwrap();
 		let genesis_header = spec.genesis_header();
-		let mut db_result = get_temp_state_db();
-		let db = spec.ensure_db_good(db_result.take(), &Default::default()).unwrap();
 		let last_hashes = Arc::new(vec![genesis_header.hash()]);
-		let b = OpenBlock::new(engine, Default::default(), false, db, &genesis_header, last_hashes, Address::default(), (3141562.into(), 31415620.into()), vec![]).unwrap();
+		let b = OpenBlock::new(engine, Default::default(), false, db, &genesis_header, last_hashes, Address::default(), (3141562.into(), 31415620.into()), vec![], false).unwrap();
 		let b = b.close_and_lock();
-		if let Seal::Regular(seal) = engine.generate_seal(b.block()) {
+		if let Seal::Regular(seal) = engine.generate_seal(b.block(), &genesis_header) {
 			assert!(b.try_seal(engine, seal).is_ok());
 		}
 	}
@@ -92,10 +82,10 @@ mod tests {
 		let engine = Spec::new_instant().engine;
 		let mut header: Header = Header::default();
 
-		assert!(engine.verify_block_basic(&header, None).is_ok());
+		assert!(engine.verify_block_basic(&header).is_ok());
 
-		header.set_seal(vec![::rlp::encode(&H520::default()).to_vec()]);
+		header.set_seal(vec![::rlp::encode(&H520::default()).into_vec()]);
 
-		assert!(engine.verify_block_unordered(&header, None).is_ok());
+		assert!(engine.verify_block_unordered(&header).is_ok());
 	}
 }

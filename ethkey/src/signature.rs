@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -21,10 +21,11 @@ use std::str::FromStr;
 use std::hash::{Hash, Hasher};
 use secp256k1::{Message as SecpMessage, RecoverableSignature, RecoveryId, Error as SecpError};
 use secp256k1::key::{SecretKey, PublicKey};
-use rustc_serialize::hex::{ToHex, FromHex};
-use bigint::hash::{H520, H256, FixedHash};
+use rustc_hex::{ToHex, FromHex};
+use bigint::hash::{H520, H256};
 use {Secret, Public, SECP256K1, Error, Message, public_to_address, Address};
 
+/// Signature encoded as RSV components
 #[repr(C)]
 pub struct Signature([u8; 65]);
 
@@ -44,8 +45,28 @@ impl Signature {
 		self.0[64]
 	}
 
+	/// Encode the signature into RSV array (V altered to be in "Electrum" notation).
+	pub fn into_electrum(mut self) -> [u8; 65] {
+		self.0[64] += 27;
+		self.0
+	}
+
+	/// Parse bytes as a signature encoded as RSV (V in "Electrum" notation).
+	/// May return empty (invalid) signature if given data has invalid length.
+	pub fn from_electrum(data: &[u8]) -> Self {
+		if data.len() != 65 || data[64] < 27 {
+			// fallback to empty (invalid) signature
+			return Signature::default();
+		}
+
+		let mut sig = [0u8; 65];
+		sig.copy_from_slice(data);
+		sig[64] -= 27;
+		Signature(sig)
+	}
+
 	/// Create a signature object from the sig.
-	pub fn from_rsv(r: &H256, s: &H256, v: u8) -> Signature {
+	pub fn from_rsv(r: &H256, s: &H256, v: u8) -> Self {
 		let mut sig = [0u8; 65];
 		sig[0..32].copy_from_slice(&r);
 		sig[32..64].copy_from_slice(&s);
@@ -221,6 +242,21 @@ mod tests {
 	use std::str::FromStr;
 	use {Generator, Random, Message};
 	use super::{sign, verify_public, verify_address, recover, Signature};
+
+	#[test]
+	fn vrs_conversion() {
+		// given
+		let keypair = Random.generate().unwrap();
+		let message = Message::default();
+		let signature = sign(keypair.secret(), &message).unwrap();
+
+		// when
+		let vrs = signature.clone().into_electrum();
+		let from_vrs = Signature::from_electrum(&vrs);
+
+		// then
+		assert_eq!(signature, from_vrs);
+	}
 
 	#[test]
 	fn signature_to_and_from_str() {

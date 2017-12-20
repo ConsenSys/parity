@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,35 +16,41 @@
 
 //! Snapshot network service implementation.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use super::{ManifestData, StateRebuilder, BlockRebuilder, RestorationStatus, SnapshotService};
+use super::{ManifestData, StateRebuilder, Rebuilder, RestorationStatus, SnapshotService};
 use super::io::{SnapshotReader, LooseReader, SnapshotWriter, LooseWriter};
 
 use blockchain::BlockChain;
 use client::{BlockChainClient, Client};
-use engines::Engine;
+use engines::EthEngine;
 use error::Error;
 use ids::BlockId;
 use service::ClientIoMessage;
 
 use io::IoChannel;
 
-use util::{Bytes, H256, Mutex, RwLock, RwLockReadGuard, UtilError};
-use util::journaldb::Algorithm;
-use util::kvdb::{Database, DatabaseConfig};
-use util::snappy;
+use bigint::hash::H256;
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use util_error::UtilError;
+use bytes::Bytes;
+use journaldb::Algorithm;
+use kvdb_rocksdb::{Database, DatabaseConfig};
+use snappy;
 
 /// Helper for removing directories in case of error.
 struct Guard(bool, PathBuf);
 
 impl Guard {
 	fn new(path: PathBuf) -> Self { Guard(true, path) }
+
+	#[cfg(test)]
+	fn benign() -> Self { Guard(false, PathBuf::default()) }
 
 	fn disarm(mut self) { self.0 = false }
 }
@@ -69,12 +75,11 @@ struct Restoration {
 	state_chunks_left: HashSet<H256>,
 	block_chunks_left: HashSet<H256>,
 	state: StateRebuilder,
-	blocks: BlockRebuilder,
+	secondary: Box<Rebuilder>,
 	writer: Option<LooseWriter>,
 	snappy_buffer: Bytes,
 	final_state_root: H256,
 	guard: Guard,
-	canonical_hashes: HashMap<u64, H256>,
 	db: Arc<Database>,
 }
 
@@ -86,6 +91,7 @@ struct RestorationParams<'a> {
 	writer: Option<LooseWriter>, // writer for recovered snapshot.
 	genesis: &'a [u8], // genesis block of the chain.
 	guard: Guard, // guard for the restoration directory.
+	engine: &'a EthEngine,
 }
 
 impl Restoration {
@@ -97,30 +103,33 @@ impl Restoration {
 		let block_chunks = manifest.block_hashes.iter().cloned().collect();
 
 		let raw_db = Arc::new(Database::open(params.db_config, &*params.db_path.to_string_lossy())
-			.map_err(UtilError::SimpleString)?);
+			.map_err(UtilError::from)?);
 
 		let chain = BlockChain::new(Default::default(), params.genesis, raw_db.clone());
-		let blocks = BlockRebuilder::new(chain, raw_db.clone(), &manifest)?;
+		let components = params.engine.snapshot_components()
+			.ok_or_else(|| ::snapshot::Error::SnapshotsUnsupported)?;
+
+		let secondary = components.rebuilder(chain, raw_db.clone(), &manifest)?;
 
 		let root = manifest.state_root.clone();
+
 		Ok(Restoration {
 			manifest: manifest,
 			state_chunks_left: state_chunks,
 			block_chunks_left: block_chunks,
 			state: StateRebuilder::new(raw_db.clone(), params.pruning),
-			blocks: blocks,
+			secondary: secondary,
 			writer: params.writer,
 			snappy_buffer: Vec::new(),
 			final_state_root: root,
 			guard: params.guard,
-			canonical_hashes: HashMap::new(),
 			db: raw_db,
 		})
 	}
 
 	// feeds a state chunk, aborts early if `flag` becomes false.
 	fn feed_state(&mut self, hash: H256, chunk: &[u8], flag: &AtomicBool) -> Result<(), Error> {
-		if self.state_chunks_left.remove(&hash) {
+		if self.state_chunks_left.contains(&hash) {
 			let len = snappy::decompress_into(chunk, &mut self.snappy_buffer)?;
 
 			self.state.feed(&self.snappy_buffer[..len], flag)?;
@@ -128,33 +137,32 @@ impl Restoration {
 			if let Some(ref mut writer) = self.writer.as_mut() {
 				writer.write_state_chunk(hash, chunk)?;
 			}
+
+			self.state_chunks_left.remove(&hash);
 		}
 
 		Ok(())
 	}
 
 	// feeds a block chunk
-	fn feed_blocks(&mut self, hash: H256, chunk: &[u8], engine: &Engine, flag: &AtomicBool) -> Result<(), Error> {
-		if self.block_chunks_left.remove(&hash) {
+	fn feed_blocks(&mut self, hash: H256, chunk: &[u8], engine: &EthEngine, flag: &AtomicBool) -> Result<(), Error> {
+		if self.block_chunks_left.contains(&hash) {
 			let len = snappy::decompress_into(chunk, &mut self.snappy_buffer)?;
 
-			self.blocks.feed(&self.snappy_buffer[..len], engine, flag)?;
+			self.secondary.feed(&self.snappy_buffer[..len], engine, flag)?;
 			if let Some(ref mut writer) = self.writer.as_mut() {
 				 writer.write_block_chunk(hash, chunk)?;
 			}
+
+			self.block_chunks_left.remove(&hash);
 		}
 
 		Ok(())
 	}
 
-	// note canonical hashes.
-	fn note_canonical(&mut self, hashes: &[(u64, H256)]) {
-		self.canonical_hashes.extend(hashes.iter().cloned());
-	}
-
 	// finish up restoration.
-	fn finalize(self) -> Result<(), Error> {
-		use util::trie::TrieError;
+	fn finalize(mut self, engine: &EthEngine) -> Result<(), Error> {
+		use trie::TrieError;
 
 		if !self.is_done() { return Ok(()) }
 
@@ -166,10 +174,10 @@ impl Restoration {
 		}
 
 		// check for missing code.
-		self.state.check_missing()?;
+		self.state.finalize(self.manifest.block_number, self.manifest.block_hash)?;
 
 		// connect out-of-order chunks and verify chain integrity.
-		self.blocks.finalize(self.canonical_hashes)?;
+		self.secondary.finalize(engine)?;
 
 		if let Some(writer) = self.writer {
 			writer.finish(self.manifest)?;
@@ -191,7 +199,7 @@ pub type Channel = IoChannel<ClientIoMessage>;
 /// Snapshot service parameters.
 pub struct ServiceParams {
 	/// The consensus engine this is built on.
-	pub engine: Arc<Engine>,
+	pub engine: Arc<EthEngine>,
 	/// The chain's genesis block.
 	pub genesis_block: Bytes,
 	/// Database configuration options.
@@ -217,7 +225,7 @@ pub struct Service {
 	pruning: Algorithm,
 	status: Mutex<RestorationStatus>,
 	reader: RwLock<Option<LooseReader>>,
-	engine: Arc<Engine>,
+	engine: Arc<EthEngine>,
 	genesis_block: Bytes,
 	state_chunks: AtomicUsize,
 	block_chunks: AtomicUsize,
@@ -425,6 +433,7 @@ impl Service {
 			writer: writer,
 			genesis: &self.genesis_block,
 			guard: Guard::new(rest_dir),
+			engine: &*self.engine,
 		};
 
 		let state_chunks = params.manifest.state_hashes.len();
@@ -452,7 +461,10 @@ impl Service {
 		let recover = rest.as_ref().map_or(false, |rest| rest.writer.is_some());
 
 		// destroy the restoration before replacing databases and snapshot.
-		rest.take().map(Restoration::finalize).unwrap_or(Ok(()))?;
+		rest.take()
+			.map(|r| r.finalize(&*self.engine))
+			.unwrap_or(Ok(()))?;
+
 		self.replace_client_db()?;
 
 		if recover {
@@ -508,7 +520,7 @@ impl Service {
 
 							match is_done {
 								true => {
-									db.flush().map_err(::util::UtilError::SimpleString)?;
+									db.flush().map_err(UtilError::from)?;
 									drop(db);
 									return self.finalize_restoration(&mut *restoration);
 								},
@@ -521,7 +533,7 @@ impl Service {
 				}
 			}
 		};
-		result.and_then(|_| db.flush().map_err(|e| ::util::UtilError::SimpleString(e).into()))
+		result.and_then(|_| db.flush().map_err(|e| UtilError::from(e).into()))
 	}
 
 	/// Feed a state chunk to be processed synchronously.
@@ -554,6 +566,11 @@ impl Service {
 impl SnapshotService for Service {
 	fn manifest(&self) -> Option<ManifestData> {
 		self.reader.read().as_ref().map(|r| r.manifest().clone())
+	}
+
+	fn supported_versions(&self) -> Option<(u64, u64)> {
+		self.engine.snapshot_components()
+			.map(|c| (c.min_supported_version(), c.current_version()))
 	}
 
 	fn chunk(&self, hash: H256) -> Option<Bytes> {
@@ -593,14 +610,6 @@ impl SnapshotService for Service {
 			trace!("Error sending snapshot service message: {:?}", e);
 		}
 	}
-
-	fn provide_canon_hashes(&self, canonical: &[(u64, H256)]) {
-		let mut rest = self.restoration.lock();
-
-		if let Some(ref mut rest) = rest.as_mut() {
-			rest.note_canonical(canonical);
-		}
-	}
 }
 
 impl Drop for Service {
@@ -616,7 +625,7 @@ mod tests {
 	use io::{IoService};
 	use devtools::RandomTempPath;
 	use tests::helpers::get_test_spec;
-	use util::journaldb::Algorithm;
+	use journaldb::Algorithm;
 	use error::Error;
 	use snapshot::{ManifestData, RestorationStatus, SnapshotService};
 	use super::*;
@@ -656,6 +665,7 @@ mod tests {
 		assert_eq!(service.status(), RestorationStatus::Inactive);
 
 		let manifest = ManifestData {
+			version: 2,
 			state_hashes: vec![],
 			block_hashes: vec![],
 			state_root: Default::default(),
@@ -667,5 +677,51 @@ mod tests {
 		service.abort_restore();
 		service.restore_state_chunk(Default::default(), vec![]);
 		service.restore_block_chunk(Default::default(), vec![]);
+	}
+
+	#[test]
+	fn cannot_finish_with_invalid_chunks() {
+		use bigint::hash::H256;
+		use kvdb_rocksdb::DatabaseConfig;
+
+		let spec = get_test_spec();
+		let dir = RandomTempPath::new();
+
+		let state_hashes: Vec<_> = (0..5).map(|_| H256::random()).collect();
+		let block_hashes: Vec<_> = (0..5).map(|_| H256::random()).collect();
+		let db_config = DatabaseConfig::with_columns(::db::NUM_COLUMNS);
+		let gb = spec.genesis_block();
+		let flag = ::std::sync::atomic::AtomicBool::new(true);
+
+		let params = RestorationParams {
+			manifest: ManifestData {
+				version: 2,
+				state_hashes: state_hashes.clone(),
+				block_hashes: block_hashes.clone(),
+				state_root: H256::default(),
+				block_number: 100000,
+				block_hash: H256::default(),
+			},
+			pruning: Algorithm::Archive,
+			db_path: dir.as_path().to_owned(),
+			db_config: &db_config,
+			writer: None,
+			genesis: &gb,
+			guard: Guard::benign(),
+			engine: &*spec.engine.clone(),
+		};
+
+		let mut restoration = Restoration::new(params).unwrap();
+		let definitely_bad_chunk = [1, 2, 3, 4, 5];
+
+		for hash in state_hashes {
+			assert!(restoration.feed_state(hash, &definitely_bad_chunk, &flag).is_err());
+			assert!(!restoration.is_done());
+		}
+
+		for hash in block_hashes {
+			assert!(restoration.feed_blocks(hash, &definitely_bad_chunk, &*spec.engine, &flag).is_err());
+			assert!(!restoration.is_done());
+		}
 	}
 }

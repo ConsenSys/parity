@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -22,7 +22,6 @@ const webpackHotMiddleware = require('webpack-hot-middleware');
 const http = require('http');
 const express = require('express');
 const ProgressBar = require('progress');
-const proxy = require('http-proxy-middleware');
 
 const webpackConfig = require('./app');
 const Shared = require('./shared');
@@ -48,7 +47,7 @@ let progressBar = { update: () => {} };
 
   webpackConfig.plugins.push(new webpack.HotModuleReplacementPlugin());
   webpackConfig.plugins.push(new webpack.NamedModulesPlugin());
-  webpackConfig.plugins.push(new webpack.NoErrorsPlugin());
+  webpackConfig.plugins.push(new webpack.NoEmitOnErrorsPlugin());
 
   webpackConfig.plugins.push(new webpack.ProgressPlugin(
     (percentage) => progressBar.update(percentage)
@@ -74,6 +73,7 @@ app.use(webpackDevMiddleware(compiler, {
     // @see https://github.com/webpack/webpack/blob/324d309107f00cfc38ec727521563d309339b2ec/lib/Stats.js#L790
     // Accepted values: none, errors-only, minimal, normal, verbose
     const options = WebpackStats.presetToOptions('minimal');
+
     options.timings = true;
 
     const output = data.stats.toString(options);
@@ -84,18 +84,14 @@ app.use(webpackDevMiddleware(compiler, {
   }
 }));
 
-var wsProxy = proxy('ws://127.0.0.1:8180', { changeOrigin: true });
-
 // Add the dev proxies in the express App
 Shared.addProxies(app);
 
 app.use(express.static(webpackConfig.output.path));
-app.use(wsProxy);
 
 const server = http.createServer(app);
+
 server.listen(process.env.PORT || 3000, function () {
   console.log('Listening on port', server.address().port);
   progressBar = new ProgressBar('[:bar] :percent :etas', { total: 50 });
 });
-
-server.on('upgrade', wsProxy.upgrade);

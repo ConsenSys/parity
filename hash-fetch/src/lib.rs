@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -20,17 +20,25 @@
 
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate mime;
 
-extern crate ethabi;
 extern crate ethcore_util as util;
-pub extern crate fetch;
+extern crate ethcore_bigint as bigint;
+extern crate ethcore_bytes as bytes;
 extern crate futures;
+extern crate keccak_hash as hash;
+extern crate mime;
 extern crate mime_guess;
-extern crate rand;
-extern crate rustc_serialize;
+extern crate native_contracts;
 extern crate parity_reactor;
+extern crate rand;
+extern crate rustc_hex;
+
+pub extern crate fetch;
+
+#[cfg(test)]
+extern crate parking_lot;
+#[cfg(test)]
+extern crate ethabi;
 
 mod client;
 

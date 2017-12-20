@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -18,11 +18,13 @@
 
 use block::Block;
 use header::Header;
+use hash::keccak;
 
 use views::BlockView;
-use rlp::{DecoderError, RlpStream, Stream, UntrustedRlp, View};
-use util::{Bytes, Hashable, H256};
-use util::triehash::ordered_trie_root;
+use rlp::{DecoderError, RlpStream, UntrustedRlp};
+use bigint::hash::H256;
+use bytes::Bytes;
+use triehash::ordered_trie_root;
 
 const HEADER_FIELDS: usize = 8;
 const BLOCK_FIELDS: usize = 2;
@@ -69,7 +71,9 @@ impl AbridgedBlock {
 			.append(&header.extra_data());
 
 		// write block values.
-		stream.append(&block_view.transactions()).append(&block_view.uncles());
+		stream
+			.append_list(&block_view.transactions())
+			.append_list(&block_view.uncles());
 
 		// write seal fields.
 		for field in seal_fields {
@@ -99,8 +103,8 @@ impl AbridgedBlock {
 		header.set_timestamp(rlp.val_at(6)?);
 		header.set_extra_data(rlp.val_at(7)?);
 
-		let transactions = rlp.val_at(8)?;
-		let uncles: Vec<Header> = rlp.val_at(9)?;
+		let transactions = rlp.list_at(8)?;
+		let uncles: Vec<Header> = rlp.list_at(9)?;
 
 		header.set_transactions_root(ordered_trie_root(
 			rlp.at(8)?.iter().map(|r| r.as_raw().to_owned())
@@ -108,11 +112,11 @@ impl AbridgedBlock {
 		header.set_receipts_root(receipts_root);
 
 		let mut uncles_rlp = RlpStream::new();
-		uncles_rlp.append(&uncles);
-		header.set_uncles_hash(uncles_rlp.as_raw().sha3());
+		uncles_rlp.append_list(&uncles);
+		header.set_uncles_hash(keccak(uncles_rlp.as_raw()));
 
 		let mut seal_fields = Vec::new();
-		for i in (HEADER_FIELDS + BLOCK_FIELDS)..rlp.item_count() {
+		for i in (HEADER_FIELDS + BLOCK_FIELDS)..rlp.item_count()? {
 			let seal_rlp = rlp.at(i)?;
 			seal_fields.push(seal_rlp.as_raw().to_owned());
 		}
@@ -132,9 +136,12 @@ mod tests {
 	use views::BlockView;
 	use block::Block;
 	use super::AbridgedBlock;
-	use types::transaction::{Action, Transaction};
+	use transaction::{Action, Transaction};
 
-	use util::{Address, H256, FixedHash, U256, Bytes};
+	use bigint::prelude::U256;
+	use bigint::hash::H256;
+	use util::Address;
+	use bytes::Bytes;
 
 	fn encode_block(b: &Block) -> Bytes {
 		b.rlp_bytes(::basic_types::Seal::With)
@@ -187,8 +194,8 @@ mod tests {
 		b.transactions.push(t2.into());
 
 		let receipts_root = b.header.receipts_root().clone();
-		b.header.set_transactions_root(::util::triehash::ordered_trie_root(
-			b.transactions.iter().map(::rlp::encode).map(|out| out.to_vec())
+		b.header.set_transactions_root(::triehash::ordered_trie_root(
+			b.transactions.iter().map(::rlp::encode).map(|out| out.into_vec())
 		));
 
 		let encoded = encode_block(&b);

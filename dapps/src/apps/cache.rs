@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -19,12 +19,12 @@
 use std::fs;
 
 use linked_hash_map::LinkedHashMap;
-use page::LocalPageEndpoint;
+use page::local;
 use handlers::FetchControl;
 
 pub enum ContentStatus {
 	Fetching(FetchControl),
-	Ready(LocalPageEndpoint),
+	Ready(local::Dapp),
 }
 
 #[derive(Default)]

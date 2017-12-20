@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,12 +16,10 @@
 
 use std;
 use std::error::Error as StdError;
-use util::H256;
-use ipc::IpcConfig;
+use bigint::hash::H256;
 use jsonrpc_tcp_server::PushMessageError;
 
 #[derive(Debug, Clone)]
-#[binary]
 pub enum Error {
 	NoWork,
 	NoWorkers,
@@ -42,7 +40,6 @@ impl From<PushMessageError> for Error {
 	}
 }
 
-#[ipc(client_ident="RemoteJobDispatcher")]
 /// Interface that can provide pow/blockchain-specific responses for the clients
 pub trait JobDispatcher: Send + Sync {
 	// json for initial client handshake
@@ -55,7 +52,6 @@ pub trait JobDispatcher: Send + Sync {
 	fn submit(&self, payload: Vec<String>) -> Result<(), Error>;
 }
 
-#[ipc(client_ident="RemoteWorkHandler")]
 /// Interface that can handle requests to push job for workers
 pub trait PushWorkHandler: Send + Sync {
 	/// push the same work package for all workers (`payload`: json of pow-specific set of work specification)
@@ -65,13 +61,9 @@ pub trait PushWorkHandler: Send + Sync {
 	fn push_work(&self, payloads: Vec<String>) -> Result<(), Error>;
 }
 
-#[binary]
 pub struct ServiceConfiguration {
 	pub io_path: String,
 	pub listen_addr: String,
 	pub port: u16,
 	pub secret: Option<H256>,
 }
-
-impl IpcConfig for PushWorkHandler { }
-impl IpcConfig for JobDispatcher { }

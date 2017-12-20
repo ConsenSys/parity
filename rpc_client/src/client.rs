@@ -1,5 +1,3 @@
-extern crate jsonrpc_core;
-
 use std::fmt::{Debug, Formatter, Error as FmtError};
 use std::io::{BufReader, BufRead};
 use std::sync::Arc;
@@ -9,11 +7,12 @@ use std::thread;
 use std::time;
 
 use std::path::PathBuf;
-use util::{Hashable, Mutex};
+use hash::keccak;
+use parking_lot::Mutex;
 use url::Url;
 use std::fs::File;
 
-use ws::{
+use ws::ws::{
 	self,
 	Request,
 	Handler,
@@ -25,18 +24,20 @@ use ws::{
 	Result as WsResult,
 };
 
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{
 	self as json,
 	Value as JsonValue,
 	Error as JsonError,
 };
 
-use futures::{BoxFuture, Canceled, Complete, Future, oneshot, done};
+use futures::{Canceled, Complete, Future, oneshot, done};
 
 use jsonrpc_core::{Id, Version, Params, Error as JsonRpcError};
 use jsonrpc_core::request::MethodCall;
 use jsonrpc_core::response::{Output, Success, Failure};
+
+use BoxFuture;
 
 /// The actual websocket connection handler, passed into the
 /// event loop of ws-rs
@@ -72,7 +73,7 @@ impl Handler for RpcHandler {
 					WsError::new(WsErrorKind::Internal, format!("{}", err))
 				})?;
 				let secs = timestamp.as_secs();
-				let hashed = format!("{}:{}", self.auth_code, secs).sha3();
+				let hashed = keccak(format!("{}:{}", self.auth_code, secs));
 				let proto = format!("{:?}_{}", hashed, secs);
 				r.add_protocol(&proto);
 				Ok(r)
@@ -83,18 +84,24 @@ impl Handler for RpcHandler {
 	}
 	fn on_error(&mut self, err: WsError) {
 		match self.complete.take() {
-			Some(c) => c.complete(Err(RpcError::WsError(err))),
-			None => println!("unexpected error: {}", err),
+			Some(c) => match c.send(Err(RpcError::WsError(err))) {
+				Ok(_) => {},
+				Err(_) => warn!(target: "rpc-client", "Unable to notify about error."),
+			},
+			None => warn!(target: "rpc-client", "unexpected error: {}", err),
 		}
 	}
 	fn on_open(&mut self, _: Handshake) -> WsResult<()> {
 		match (self.complete.take(), self.out.take()) {
 			(Some(c), Some(out)) => {
-				c.complete(Ok(Rpc {
+				let res = c.send(Ok(Rpc {
 					out: out,
 					counter: AtomicUsize::new(0),
 					pending: self.pending.clone(),
 				}));
+				if let Err(_) = res {
+					warn!(target: "rpc-client", "Unable to open a connection.")
+				}
 				Ok(())
 			},
 			_ => {
@@ -137,9 +144,9 @@ impl Handler for RpcHandler {
 		}
 
 		match self.pending.remove(response_id) {
-			Some(c) => c.complete(ret.map_err(|err| {
-				RpcError::JsonRpc(err)
-			})),
+			Some(c) => if let Err(_) = c.send(ret.map_err(|err| RpcError::JsonRpc(err))) {
+				warn!(target: "rpc-client", "Unable to send response.")
+			},
 			None => warn!(
 				target: "rpc-client",
 				"warning: unexpected id: {}",
@@ -198,13 +205,14 @@ impl Rpc {
 		let rpc = Self::connect(url, authpath).map(|rpc| rpc).wait()?;
 		rpc
 	}
+
 	/// Non-blocking, returns a future
 	pub fn connect(
 		url: &str, authpath: &PathBuf
 	) -> BoxFuture<Result<Self, RpcError>, Canceled> {
 		let (c, p) = oneshot::<Result<Self, RpcError>>();
 		match get_authcode(authpath) {
-			Err(e) => return done(Ok(Err(e))).boxed(),
+			Err(e) => return Box::new(done(Ok(Err(e)))),
 			Ok(code) => {
 				let url = String::from(url);
 				// The ws::connect takes a FnMut closure, which means c cannot
@@ -225,21 +233,22 @@ impl Rpc {
 							// both fail and succeed.
 							let c = once.take()
 								.expect("connection closure called only once");
-							c.complete(Err(RpcError::WsError(err)));
+							let _ = c.send(Err(RpcError::WsError(err)));
 						},
 						// c will complete on the `on_open` event in the Handler
 						_ => ()
 					}
 				});
-				p.boxed()
+				Box::new(p)
 			}
 		}
 	}
+
 	/// Non-blocking, returns a future of the request response
 	pub fn request<T>(
 		&mut self, method: &'static str, params: Vec<JsonValue>
 	) -> BoxFuture<Result<T, RpcError>, Canceled>
-		where T: Deserialize + Send + Sized {
+		where T: DeserializeOwned + Send + Sized {
 
 		let (c, p) = oneshot::<Result<JsonValue, RpcError>>();
 
@@ -257,7 +266,7 @@ impl Rpc {
 			.expect("request is serializable");
 		let _ = self.out.send(serialized);
 
-		p.map(|result| {
+		Box::new(p.map(|result| {
 			match result {
 				Ok(json) => {
 					let t: T = json::from_value(json)?;
@@ -265,7 +274,7 @@ impl Rpc {
 				},
 				Err(err) => Err(err)
 			}
-		}).boxed()
+		}))
 	}
 }
 

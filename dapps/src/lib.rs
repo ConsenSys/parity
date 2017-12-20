@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -15,357 +15,286 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 //! Ethcore Webapplications for Parity
-//!
 #![warn(missing_docs)]
+#![cfg_attr(feature="nightly", feature(plugin))]
 #![cfg_attr(feature="nightly", plugin(clippy))]
 
-extern crate hyper;
-extern crate time;
-extern crate url as url_lib;
-extern crate unicase;
+extern crate base32;
+extern crate futures_cpupool;
+extern crate itertools;
+extern crate linked_hash_map;
+extern crate mime_guess;
+extern crate parking_lot;
+extern crate rand;
+extern crate rustc_hex;
 extern crate serde;
 extern crate serde_json;
+extern crate unicase;
 extern crate zip;
-extern crate rand;
-extern crate jsonrpc_core;
-extern crate jsonrpc_http_server;
-extern crate mime_guess;
-extern crate rustc_serialize;
-extern crate ethcore_rpc;
-extern crate ethcore_util as util;
-extern crate parity_hash_fetch as hash_fetch;
-extern crate linked_hash_map;
-extern crate fetch;
-extern crate parity_dapps_glue as parity_dapps;
-extern crate futures;
-extern crate parity_reactor;
 
+extern crate jsonrpc_http_server;
+
+extern crate ethcore_util as util;
+extern crate ethcore_bigint as bigint;
+extern crate ethcore_bytes as bytes;
+extern crate fetch;
+extern crate node_health;
+extern crate parity_dapps_glue as parity_dapps;
+extern crate parity_hash_fetch as hash_fetch;
+extern crate parity_ui;
+extern crate keccak_hash as hash;
+
+#[macro_use]
+extern crate futures;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate mime;
+extern crate serde_derive;
 
+#[cfg(test)]
+extern crate env_logger;
 #[cfg(test)]
 extern crate ethcore_devtools as devtools;
 #[cfg(test)]
-extern crate env_logger;
-
+extern crate jsonrpc_core;
+#[cfg(test)]
+extern crate parity_reactor;
 
 mod endpoint;
 mod apps;
 mod page;
 mod router;
 mod handlers;
-mod rpc;
 mod api;
 mod proxypac;
-mod url;
 mod web;
 #[cfg(test)]
 mod tests;
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::mem;
+use std::path::PathBuf;
+use std::sync::Arc;
+use futures_cpupool::CpuPool;
+use jsonrpc_http_server::{self as http, hyper, Origin};
+use parking_lot::RwLock;
 
-use ethcore_rpc::Metadata;
-use fetch::{Fetch, Client as FetchClient};
-use hash_fetch::urlhint::ContractClient;
-use jsonrpc_core::reactor::RpcHandler;
-use router::auth::{Authorization, NoAuth, HttpBasicAuth};
-use parity_reactor::Remote;
+use fetch::Fetch;
+use node_health::NodeHealth;
 
-use self::apps::{HOME_PAGE, DAPPS_DOMAIN};
+pub use hash_fetch::urlhint::ContractClient;
+pub use node_health::SyncStatus;
 
-/// Indicates sync status
-pub trait SyncStatus: Send + Sync {
-	/// Returns true if there is a major sync happening.
-	fn is_major_importing(&self) -> bool;
-}
-
-impl<F> SyncStatus for F where F: Fn() -> bool + Send + Sync {
-	fn is_major_importing(&self) -> bool { self() }
-}
 
 /// Validates Web Proxy tokens
 pub trait WebProxyTokens: Send + Sync {
-	/// Should return true if token is a valid web proxy access token.
-	fn is_web_proxy_token_valid(&self, token: &String) -> bool;
+	/// Should return a domain allowed to be accessed by this token or `None` if the token is not valid
+	fn domain(&self, token: &str) -> Option<Origin>;
 }
 
-impl<F> WebProxyTokens for F where F: Fn(String) -> bool + Send + Sync {
-	fn is_web_proxy_token_valid(&self, token: &String) -> bool { self(token.to_owned()) }
+impl<F> WebProxyTokens for F where F: Fn(String) -> Option<Origin> + Send + Sync {
+	fn domain(&self, token: &str) -> Option<Origin> { self(token.to_owned()) }
 }
 
-/// Webapps HTTP+RPC server build.
-pub struct ServerBuilder<T: Fetch = FetchClient> {
+/// Current supported endpoints.
+#[derive(Default, Clone)]
+pub struct Endpoints {
+	local_endpoints: Arc<RwLock<Vec<String>>>,
+	endpoints: Arc<RwLock<endpoint::Endpoints>>,
 	dapps_path: PathBuf,
-	extra_dapps: Vec<PathBuf>,
-	registrar: Arc<ContractClient>,
-	sync_status: Arc<SyncStatus>,
-	web_proxy_tokens: Arc<WebProxyTokens>,
-	signer_address: Option<(String, u16)>,
-	allowed_hosts: Option<Vec<String>>,
-	remote: Remote,
-	fetch: Option<T>,
+	embeddable: Option<ParentFrameSettings>,
+	pool: Option<CpuPool>,
 }
 
-impl ServerBuilder {
-	/// Construct new dapps server
-	pub fn new<P: AsRef<Path>>(dapps_path: P, registrar: Arc<ContractClient>, remote: Remote) -> Self {
-		ServerBuilder {
-			dapps_path: dapps_path.as_ref().to_owned(),
-			extra_dapps: vec![],
-			registrar: registrar,
-			sync_status: Arc::new(|| false),
-			web_proxy_tokens: Arc::new(|_| false),
-			signer_address: None,
-			allowed_hosts: Some(vec![]),
-			remote: remote,
-			fetch: None,
+impl Endpoints {
+	/// Returns a current list of app endpoints.
+	pub fn list(&self) -> Vec<apps::App> {
+		self.endpoints.read().iter().filter_map(|(ref k, ref e)| {
+			e.info().map(|ref info| apps::App::from_info(k, info))
+		}).collect()
+	}
+
+	/// Check for any changes in the local dapps folder and update.
+	pub fn refresh_local_dapps(&self) {
+		let pool = match self.pool.as_ref() {
+			None => return,
+			Some(pool) => pool,
+		};
+		let new_local = apps::fs::local_endpoints(&self.dapps_path, self.embeddable.clone(), pool.clone());
+		let old_local = mem::replace(&mut *self.local_endpoints.write(), new_local.keys().cloned().collect());
+		let (_, to_remove): (_, Vec<_>) = old_local
+			.into_iter()
+			.partition(|k| new_local.contains_key(&k.clone()));
+
+		let mut endpoints = self.endpoints.write();
+		// remove the dead dapps
+		for k in to_remove {
+			endpoints.remove(&k);
 		}
-	}
-}
-
-impl<T: Fetch> ServerBuilder<T> {
-	/// Set a fetch client to use.
-	pub fn fetch<X: Fetch>(self, fetch: X) -> ServerBuilder<X> {
-		ServerBuilder {
-			dapps_path: self.dapps_path,
-			extra_dapps: vec![],
-			registrar: self.registrar,
-			sync_status: self.sync_status,
-			web_proxy_tokens: self.web_proxy_tokens,
-			signer_address: self.signer_address,
-			allowed_hosts: self.allowed_hosts,
-			remote: self.remote,
-			fetch: Some(fetch),
-		}
-	}
-
-	/// Change default sync status.
-	pub fn sync_status(mut self, status: Arc<SyncStatus>) -> Self {
-		self.sync_status = status;
-		self
-	}
-
-	/// Change default web proxy tokens validator.
-	pub fn web_proxy_tokens(mut self, tokens: Arc<WebProxyTokens>) -> Self {
-		self.web_proxy_tokens = tokens;
-		self
-	}
-
-	/// Change default signer port.
-	pub fn signer_address(mut self, signer_address: Option<(String, u16)>) -> Self {
-		self.signer_address = signer_address;
-		self
-	}
-
-	/// Change allowed hosts.
-	/// `None` - All hosts are allowed
-	/// `Some(whitelist)` - Allow only whitelisted hosts (+ listen address)
-	pub fn allowed_hosts(mut self, allowed_hosts: Option<Vec<String>>) -> Self {
-		self.allowed_hosts = allowed_hosts;
-		self
-	}
-
-	/// Change extra dapps paths (apart from `dapps_path`)
-	pub fn extra_dapps<P: AsRef<Path>>(mut self, extra_dapps: &[P]) -> Self {
-		self.extra_dapps = extra_dapps.iter().map(|p| p.as_ref().to_owned()).collect();
-		self
-	}
-
-	/// Asynchronously start server with no authentication,
-	/// returns result with `Server` handle on success or an error.
-	pub fn start_unsecured_http(self, addr: &SocketAddr, handler: RpcHandler<Metadata>) -> Result<Server, ServerError> {
-		let fetch = self.fetch_client()?;
-		Server::start_http(
-			addr,
-			self.allowed_hosts,
-			NoAuth,
-			handler,
-			self.dapps_path,
-			self.extra_dapps,
-			self.signer_address,
-			self.registrar,
-			self.sync_status,
-			self.web_proxy_tokens,
-			self.remote,
-			fetch,
-		)
-	}
-
-	/// Asynchronously start server with `HTTP Basic Authentication`,
-	/// return result with `Server` handle on success or an error.
-	pub fn start_basic_auth_http(self, addr: &SocketAddr, username: &str, password: &str, handler: RpcHandler<Metadata>) -> Result<Server, ServerError> {
-		let fetch = self.fetch_client()?;
-		Server::start_http(
-			addr,
-			self.allowed_hosts,
-			HttpBasicAuth::single_user(username, password),
-			handler,
-			self.dapps_path,
-			self.extra_dapps,
-			self.signer_address,
-			self.registrar,
-			self.sync_status,
-			self.web_proxy_tokens,
-			self.remote,
-			fetch,
-		)
-	}
-
-	fn fetch_client(&self) -> Result<T, ServerError> {
-		match self.fetch.clone() {
-			Some(fetch) => Ok(fetch),
-			None => T::new().map_err(|_| ServerError::FetchInitialization),
+		// new dapps to be added
+		for (k, v) in new_local {
+			if !endpoints.contains_key(&k) {
+				endpoints.insert(k, v);
+			}
 		}
 	}
 }
 
-/// Webapps HTTP server.
-pub struct Server {
-	server: Option<hyper::server::Listening>,
-	panic_handler: Arc<Mutex<Option<Box<Fn() -> () + Send>>>>,
+/// Dapps server as `jsonrpc-http-server` request middleware.
+pub struct Middleware {
+	endpoints: Endpoints,
+	router: router::Router,
 }
 
-impl Server {
-	/// Returns a list of allowed hosts or `None` if all hosts are allowed.
-	fn allowed_hosts(hosts: Option<Vec<String>>, bind_address: String) -> Option<Vec<String>> {
-		let mut allowed = Vec::new();
-
-		match hosts {
-			Some(hosts) => allowed.extend_from_slice(&hosts),
-			None => return None,
-		}
-
-		// Add localhost domain as valid too if listening on loopback interface.
-		allowed.push(bind_address.replace("127.0.0.1", "localhost").into());
-		allowed.push(bind_address.into());
-		Some(allowed)
+impl Middleware {
+	/// Get local endpoints handle.
+	pub fn endpoints(&self) -> &Endpoints {
+		&self.endpoints
 	}
 
-	/// Returns a list of CORS domains for API endpoint.
-	fn cors_domains(signer_address: Option<(String, u16)>) -> Vec<String> {
-		match signer_address {
-			Some(signer_address) => vec![
-				format!("http://{}{}", HOME_PAGE, DAPPS_DOMAIN),
-				format!("http://{}", address(signer_address)),
-			],
-			None => vec![],
+	/// Creates new middleware for UI server.
+	pub fn ui<F: Fetch>(
+		pool: CpuPool,
+		health: NodeHealth,
+		dapps_domain: &str,
+		registrar: Arc<ContractClient>,
+		sync_status: Arc<SyncStatus>,
+		fetch: F,
+	) -> Self {
+		let content_fetcher = Arc::new(apps::fetcher::ContentFetcher::new(
+			hash_fetch::urlhint::URLHintContract::new(registrar),
+			sync_status.clone(),
+			fetch.clone(),
+			pool.clone(),
+		).embeddable_on(None).allow_dapps(false));
+		let special = {
+			let mut special = special_endpoints(
+				pool.clone(),
+				health,
+				content_fetcher.clone(),
+			);
+			special.insert(router::SpecialEndpoint::Home, Some(apps::ui(pool.clone())));
+			special
+		};
+		let router = router::Router::new(
+			content_fetcher,
+			None,
+			special,
+			None,
+			dapps_domain.to_owned(),
+		);
+
+		Middleware {
+			endpoints: Default::default(),
+			router: router,
 		}
 	}
 
-	fn start_http<A: Authorization + 'static, F: Fetch>(
-		addr: &SocketAddr,
-		hosts: Option<Vec<String>>,
-		authorization: A,
-		handler: RpcHandler<Metadata>,
+	/// Creates new Dapps server middleware.
+	pub fn dapps<F: Fetch>(
+		pool: CpuPool,
+		health: NodeHealth,
+		ui_address: Option<(String, u16)>,
+		extra_embed_on: Vec<(String, u16)>,
+		extra_script_src: Vec<(String, u16)>,
 		dapps_path: PathBuf,
 		extra_dapps: Vec<PathBuf>,
-		signer_address: Option<(String, u16)>,
+		dapps_domain: &str,
 		registrar: Arc<ContractClient>,
 		sync_status: Arc<SyncStatus>,
 		web_proxy_tokens: Arc<WebProxyTokens>,
-		remote: Remote,
 		fetch: F,
-	) -> Result<Server, ServerError> {
-		let panic_handler = Arc::new(Mutex::new(None));
-		let authorization = Arc::new(authorization);
+	) -> Self {
+		let embeddable = as_embeddable(ui_address, extra_embed_on, extra_script_src, dapps_domain);
 		let content_fetcher = Arc::new(apps::fetcher::ContentFetcher::new(
 			hash_fetch::urlhint::URLHintContract::new(registrar),
-			sync_status,
-			signer_address.clone(),
-			remote.clone(),
+			sync_status.clone(),
 			fetch.clone(),
-		));
-		let endpoints = Arc::new(apps::all_endpoints(
-			dapps_path,
+			pool.clone(),
+		).embeddable_on(embeddable.clone()).allow_dapps(true));
+		let (local_endpoints, endpoints) = apps::all_endpoints(
+			dapps_path.clone(),
 			extra_dapps,
-			signer_address.clone(),
+			dapps_domain,
+			embeddable.clone(),
 			web_proxy_tokens,
-			remote.clone(),
 			fetch.clone(),
-		));
-		let cors_domains = Self::cors_domains(signer_address.clone());
+			pool.clone(),
+		);
+		let endpoints = Endpoints {
+			endpoints: Arc::new(RwLock::new(endpoints)),
+			dapps_path,
+			local_endpoints: Arc::new(RwLock::new(local_endpoints)),
+			embeddable: embeddable.clone(),
+			pool: Some(pool.clone()),
+		};
 
-		let special = Arc::new({
-			let mut special = HashMap::new();
-			special.insert(router::SpecialEndpoint::Rpc, rpc::rpc(handler, panic_handler.clone()));
-			special.insert(router::SpecialEndpoint::Utils, apps::utils());
+		let special = {
+			let mut special = special_endpoints(
+				pool.clone(),
+				health,
+				content_fetcher.clone(),
+			);
 			special.insert(
-				router::SpecialEndpoint::Api,
-				api::RestApi::new(cors_domains, endpoints.clone(), content_fetcher.clone())
+				router::SpecialEndpoint::Home,
+				Some(apps::ui_redirection(embeddable.clone())),
 			);
 			special
-		});
-		let hosts = Self::allowed_hosts(hosts, format!("{}", addr));
+		};
 
-		hyper::Server::http(addr)?
-			.handle(move |ctrl| router::Router::new(
-				ctrl,
-				signer_address.clone(),
-				content_fetcher.clone(),
-				endpoints.clone(),
-				special.clone(),
-				authorization.clone(),
-				hosts.clone(),
-			))
-			.map(|(l, srv)| {
+		let router = router::Router::new(
+			content_fetcher,
+			Some(endpoints.clone()),
+			special,
+			embeddable,
+			dapps_domain.to_owned(),
+		);
 
-				::std::thread::spawn(move || {
-					srv.run();
-				});
-
-				Server {
-					server: Some(l),
-					panic_handler: panic_handler,
-				}
-			})
-			.map_err(ServerError::from)
-	}
-
-	/// Set callback for panics.
-	pub fn set_panic_handler<F>(&self, handler: F) where F : Fn() -> () + Send + 'static {
-		*self.panic_handler.lock().unwrap() = Some(Box::new(handler));
-	}
-
-	#[cfg(test)]
-	/// Returns address that this server is bound to.
-	pub fn addr(&self) -> &SocketAddr {
-		self.server.as_ref()
-			.expect("server is always Some at the start; it's consumed only when object is dropped; qed")
-			.addrs()
-			.first()
-			.expect("You cannot start the server without binding to at least one address; qed")
-	}
-}
-
-impl Drop for Server {
-	fn drop(&mut self) {
-		self.server.take().unwrap().close()
-	}
-}
-
-/// Webapp Server startup error
-#[derive(Debug)]
-pub enum ServerError {
-	/// Wrapped `std::io::Error`
-	IoError(std::io::Error),
-	/// Other `hyper` error
-	Other(hyper::error::Error),
-	/// Fetch service initialization error
-	FetchInitialization,
-}
-
-impl From<hyper::error::Error> for ServerError {
-	fn from(err: hyper::error::Error) -> Self {
-		match err {
-			hyper::error::Error::Io(e) => ServerError::IoError(e),
-			e => ServerError::Other(e),
+		Middleware {
+			endpoints,
+			router,
 		}
 	}
+}
+
+impl http::RequestMiddleware for Middleware {
+	fn on_request(&self, req: hyper::Request) -> http::RequestMiddlewareAction {
+		self.router.on_request(req)
+	}
+}
+
+fn special_endpoints(
+	pool: CpuPool,
+	health: NodeHealth,
+	content_fetcher: Arc<apps::fetcher::Fetcher>,
+) -> HashMap<router::SpecialEndpoint, Option<Box<endpoint::Endpoint>>> {
+	let mut special = HashMap::new();
+	special.insert(router::SpecialEndpoint::Rpc, None);
+	special.insert(router::SpecialEndpoint::Utils, Some(apps::utils(pool)));
+	special.insert(router::SpecialEndpoint::Api, Some(api::RestApi::new(
+		content_fetcher,
+		health,
+	)));
+	special
+}
+
+fn address(host: &str, port: u16) -> String {
+	format!("{}:{}", host, port)
+}
+
+fn as_embeddable(
+	ui_address: Option<(String, u16)>,
+	extra_embed_on: Vec<(String, u16)>,
+	extra_script_src: Vec<(String, u16)>,
+	dapps_domain: &str,
+) -> Option<ParentFrameSettings> {
+	ui_address.map(|(host, port)| ParentFrameSettings {
+		host,
+		port,
+		extra_embed_on,
+		extra_script_src,
+		dapps_domain: dapps_domain.to_owned(),
+	})
 }
 
 /// Random filename
@@ -375,40 +304,19 @@ fn random_filename() -> String {
 	rng.gen_ascii_chars().take(12).collect()
 }
 
-fn address(address: (String, u16)) -> String {
-	format!("{}:{}", address.0, address.1)
-}
+type Embeddable = Option<ParentFrameSettings>;
 
-#[cfg(test)]
-mod util_tests {
-	use super::Server;
-
-	#[test]
-	fn should_return_allowed_hosts() {
-		// given
-		let bind_address = "127.0.0.1".to_owned();
-
-		// when
-		let all = Server::allowed_hosts(None, bind_address.clone());
-		let address = Server::allowed_hosts(Some(Vec::new()), bind_address.clone());
-		let some = Server::allowed_hosts(Some(vec!["ethcore.io".into()]), bind_address.clone());
-
-		// then
-		assert_eq!(all, None);
-		assert_eq!(address, Some(vec!["localhost".into(), "127.0.0.1".into()]));
-		assert_eq!(some, Some(vec!["ethcore.io".into(), "localhost".into(), "127.0.0.1".into()]));
-	}
-
-	#[test]
-	fn should_return_cors_domains() {
-		// given
-
-		// when
-		let none = Server::cors_domains(None);
-		let some = Server::cors_domains(Some(("127.0.0.1".into(), 18180)));
-
-		// then
-		assert_eq!(none, Vec::<String>::new());
-		assert_eq!(some, vec!["http://home.parity".to_owned(), "http://127.0.0.1:18180".into()]);
-	}
+/// Parent frame host and port allowed to embed the content.
+#[derive(Debug, Clone)]
+pub struct ParentFrameSettings {
+	/// Hostname
+	pub host: String,
+	/// Port
+	pub port: u16,
+	/// Additional URLs the dapps can be embedded on.
+	pub extra_embed_on: Vec<(String, u16)>,
+	/// Additional URLs the dapp scripts can be loaded from.
+	pub extra_script_src: Vec<(String, u16)>,
+	/// Dapps Domain (web3.site)
+	pub dapps_domain: String,
 }

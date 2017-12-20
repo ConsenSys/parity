@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Ethcore (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -17,21 +17,19 @@
 //! Tendermint specific parameters.
 
 use ethjson;
-use util::{U256, Uint};
 use time::Duration;
+use bigint::prelude::U256;
+use super::super::validator_set::{ValidatorSet, new_validator_set};
 use super::super::transition::Timeouts;
 use super::Step;
 
 /// `Tendermint` params.
-#[derive(Debug)]
 pub struct TendermintParams {
-	/// Gas limit divisor.
-	pub gas_limit_bound_divisor: U256,
 	/// List of validators.
-	pub validators: ethjson::spec::ValidatorSet,
+	pub validators: Box<ValidatorSet>,
 	/// Timeout durations for different steps.
 	pub timeouts: TendermintTimeouts,
-	/// Block reward.
+	/// Reward per block in base units.
 	pub block_reward: U256,
 }
 
@@ -79,15 +77,14 @@ impl From<ethjson::spec::TendermintParams> for TendermintParams {
 	fn from(p: ethjson::spec::TendermintParams) -> Self {
 		let dt = TendermintTimeouts::default();
 		TendermintParams {
-			gas_limit_bound_divisor: p.gas_limit_bound_divisor.into(),
-			validators: p.validators,
+			validators: new_validator_set(p.validators),
 			timeouts: TendermintTimeouts {
 				propose: p.timeout_propose.map_or(dt.propose, to_duration),
 				prevote: p.timeout_prevote.map_or(dt.prevote, to_duration),
 				precommit: p.timeout_precommit.map_or(dt.precommit, to_duration),
 				commit: p.timeout_commit.map_or(dt.commit, to_duration),
 			},
-			block_reward: p.block_reward.map_or_else(U256::zero, Into::into),
+			block_reward: p.block_reward.map_or(U256::default(), Into::into),
 		}
 	}
 }

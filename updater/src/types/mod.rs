@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,6 +16,11 @@
 
 //! Types used in the public api
 
-#![allow(dead_code, unused_assignments, unused_variables)] // codegen issues
-include!(concat!(env!("OUT_DIR"), "/mod.rs.in"));
+mod all;
+mod release_track;
+mod version_info;
+
+pub use self::all::{ReleaseInfo, OperationsInfo, CapState};
+pub use self::release_track::ReleaseTrack;
+pub use self::version_info::VersionInfo;
 

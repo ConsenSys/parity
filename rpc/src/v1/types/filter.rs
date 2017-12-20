@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer, Error};
-use serde_json::value;
-use jsonrpc_core::Value;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{Error, DeserializeOwned};
+use serde_json::{Value, from_value};
 use ethcore::filter::Filter as EthFilter;
 use ethcore::client::BlockId;
 use v1::types::{BlockNumber, H160, H256, Log};
 
 /// Variadic value
-#[derive(Debug, PartialEq, Clone)]
-pub enum VariadicValue<T> where T: Deserialize {
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum VariadicValue<T> where T: DeserializeOwned {
 	/// Single
 	Single(T),
 	/// List
@@ -32,18 +32,18 @@ pub enum VariadicValue<T> where T: Deserialize {
 	Null,
 }
 
-impl<T> Deserialize for VariadicValue<T> where T: Deserialize {
-	fn deserialize<D>(deserializer: &mut D) -> Result<VariadicValue<T>, D::Error>
-	where D: Deserializer {
-		let v = Value::deserialize(deserializer)?;
+impl<'a, T> Deserialize<'a> for VariadicValue<T> where T: DeserializeOwned {
+	fn deserialize<D>(deserializer: D) -> Result<VariadicValue<T>, D::Error>
+	where D: Deserializer<'a> {
+		let v: Value = Deserialize::deserialize(deserializer)?;
 
 		if v.is_null() {
 			return Ok(VariadicValue::Null);
 		}
 
-		Deserialize::deserialize(&mut value::Deserializer::new(v.clone())).map(VariadicValue::Single)
-			.or_else(|_| Deserialize::deserialize(&mut value::Deserializer::new(v.clone())).map(VariadicValue::Multiple))
-			.map_err(|_| Error::custom("")) // unreachable, but types must match
+		from_value(v.clone()).map(VariadicValue::Single)
+			.or_else(|_| from_value(v).map(VariadicValue::Multiple))
+			.map_err(|err| D::Error::custom(format!("Invalid variadic value type: {}", err)))
 	}
 }
 
@@ -53,7 +53,7 @@ pub type FilterAddress = VariadicValue<H160>;
 pub type Topic = VariadicValue<H256>;
 
 /// Filter
-#[derive(Debug, PartialEq, Clone, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Deserialize, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
 	/// From Block
@@ -111,7 +111,7 @@ pub enum FilterChanges {
 }
 
 impl Serialize for FilterChanges {
-	fn serialize<S>(&self, s: &mut S) -> Result<(), S::Error> where S: Serializer {
+	fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
 		match *self {
 			FilterChanges::Logs(ref logs) => logs.serialize(s),
 			FilterChanges::Hashes(ref hashes) => hashes.serialize(s),
@@ -124,7 +124,7 @@ impl Serialize for FilterChanges {
 mod tests {
 	use serde_json;
 	use std::str::FromStr;
-	use util::hash::H256;
+	use bigint::hash::H256;
 	use super::{VariadicValue, Topic, Filter};
 	use v1::types::BlockNumber;
 	use ethcore::filter::Filter as EthFilter;

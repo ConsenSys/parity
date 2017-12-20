@@ -2,7 +2,7 @@
 set -e
 
 # variables
-PACKAGES=( "parity" "etherscan" "shapeshift" )
+PACKAGES=( "parity" )
 
 # change into the build directory
 BASEDIR=`dirname $0`
@@ -19,8 +19,6 @@ do
   DIRECTORY=.npmjs/$PACKAGE
 
   cd $DIRECTORY
-  echo "*** Executing $PACKAGE tests from $DIRECTORY"
-  npm test
 
   echo "*** Publishing $PACKAGE from $DIRECTORY"
   echo "npm publish --access public || true"

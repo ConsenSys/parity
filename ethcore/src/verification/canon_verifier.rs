@@ -1,4 +1,4 @@
-// Copyright 2015, 2016 Parity Technologies (UK) Ltd.
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
 // This file is part of Parity.
 
 // Parity is free software: you can redistribute it and/or modify
@@ -16,8 +16,7 @@
 
 //! Canonical verifier.
 
-use blockchain::BlockProvider;
-use engines::Engine;
+use engines::EthEngine;
 use error::Error;
 use header::Header;
 use super::Verifier;
@@ -27,11 +26,21 @@ use super::verification;
 pub struct CanonVerifier;
 
 impl Verifier for CanonVerifier {
-	fn verify_block_family(&self, header: &Header, bytes: &[u8], engine: &Engine, bc: &BlockProvider) -> Result<(), Error> {
-		verification::verify_block_family(header, bytes, engine, bc)
+	fn verify_block_family(
+		&self,
+		header: &Header,
+		parent: &Header,
+		engine: &EthEngine,
+		do_full: Option<verification::FullFamilyParams>,
+	) -> Result<(), Error> {
+		verification::verify_block_family(header, parent, engine, do_full)
 	}
 
 	fn verify_block_final(&self, expected: &Header, got: &Header) -> Result<(), Error> {
 		verification::verify_block_final(expected, got)
+	}
+
+	fn verify_block_external(&self, header: &Header, engine: &EthEngine) -> Result<(), Error> {
+		engine.verify_block_external(header)
 	}
 }
