@@ -613,6 +613,12 @@ pub struct TraceResults {
 	pub state_diff: Option<StateDiff>,
 }
 
+/// All tx replay traces for a block
+pub struct BlockTraceResults {
+	/// A vector of TraceResult items
+	pub block_traces: Vec<TraceResults>,
+}
+
 impl From<Executed> for TraceResults {
 	fn from(t: Executed) -> Self {
 		TraceResults {

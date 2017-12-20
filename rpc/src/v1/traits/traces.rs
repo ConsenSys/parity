@@ -59,6 +59,6 @@ build_rpc_trait! {
 
 		/// Executes the block with the given number and returns a number of possible traces for it.
 		#[rpc(name = "trace_replayBlock")]
-		fn replay_block(&self, BlockNumber, TraceOptions) -> Result<TraceResults>; //// TODO: create block trace result type
+		fn replay_block(&self, BlockNumber, TraceOptions) -> Result<BlockTraceResults>; //// TODO: create block trace result type
 	}
 }

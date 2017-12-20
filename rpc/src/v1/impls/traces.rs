@@ -122,4 +122,10 @@ impl<C> Traces for TracesClient<C> where C: MiningBlockChainClient + 'static {
 			.map(TraceResults::from)
 			.map_err(errors::call)
 	}
+
+	fn replay_block(&self, block_number: BlockNumber, flags: TraceOptions) -> Result<BlockTraceResults> {
+		self.client.replay(TransactionId::Hash(transaction_hash.into()), to_call_analytics(flags))  // TODO: adjust client.replay
+			.map(BlockTraceResults::from)
+			.map_err(errors::call)
+	}
 }
