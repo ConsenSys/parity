@@ -18,7 +18,7 @@
 
 use jsonrpc_core::Result;
 use jsonrpc_macros::Trailing;
-use v1::types::{TraceFilter, LocalizedTrace, BlockNumber, Index, CallRequest, Bytes, TraceResults, H256, TraceOptions};
+use v1::types::{TraceFilter, LocalizedTrace, BlockNumber, Index, CallRequest, Bytes, TraceResults, BlockTraceResults, H256, TraceOptions};
 
 build_rpc_trait! {
 	/// Traces specific rpc interface.

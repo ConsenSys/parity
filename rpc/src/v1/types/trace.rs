@@ -613,6 +613,7 @@ pub struct TraceResults {
 	pub state_diff: Option<StateDiff>,
 }
 
+#[derive(Debug, Serialize)]
 /// All tx replay traces for a block
 pub struct BlockTraceResults {
 	/// A vector of TraceResult items
