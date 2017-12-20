@@ -232,3 +232,5 @@ fn rpc_trace_replay_transaction_state_pruned() {
 
 	assert_eq!(tester.io.handle_request_sync(request), Some(response.to_owned()));
 }
+
+//// TODO: add test for trace_replayBlock
